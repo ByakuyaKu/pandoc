@@ -1,0 +1,68 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <title></title>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <meta name="generator" content="pandoc" />
+  <style type="text/css">
+table.sourceCode, tr.sourceCode, td.lineNumbers, td.sourceCode, table.sourceCode pre 
+   { margin: 0; padding: 0; border: 0; vertical-align: baseline; border: none; }
+td.lineNumbers { border-right: 1px solid #AAAAAA; text-align: right; color: #AAAAAA; padding-right: 5px; padding-left: 5px; }
+td.sourceCode { padding-left: 5px; }
+pre.sourceCode span.kw { color: #007020; font-weight: bold; } 
+pre.sourceCode span.dt { color: #902000; }
+pre.sourceCode span.dv { color: #40a070; }
+pre.sourceCode span.bn { color: #40a070; }
+pre.sourceCode span.fl { color: #40a070; }
+pre.sourceCode span.ch { color: #4070a0; }
+pre.sourceCode span.st { color: #4070a0; }
+pre.sourceCode span.co { color: #60a0b0; font-style: italic; }
+pre.sourceCode span.ot { color: #007020; }
+pre.sourceCode span.al { color: red; font-weight: bold; }
+pre.sourceCode span.fu { color: #06287e; }
+pre.sourceCode span.re { }
+pre.sourceCode span.er { color: red; font-weight: bold; }
+  </style>
+</head>
+<body>
+<h1 id="lhs-test"
+>lhs test</h1
+><p
+><code
+  >unsplit</code
+  > is an arrow that takes a pair of values and combines them to return a single value:</p
+><pre class="sourceCode haskell"
+><code
+  >unsplit :: (<span class="dt"
+    >Arrow</span
+    > a) =&gt; (b -&gt; c -&gt; d) -&gt; a (b, c) d<br
+     />unsplit <span class="fu"
+    >=</span
+    > arr <span class="fu"
+    >.</span
+    > <span class="fu"
+    >uncurry</span
+    >       <br
+     />          <span class="co"
+    >-- arr (\op (x,y) -&gt; x `op` y) </span
+    ><br
+     /></code
+  ></pre
+><p
+><code
+  >(***)</code
+  > combines two arrows into a new arrow by running the two arrows on a pair of values (one arrow on the first item of the pair and one arrow on the second item of the pair).</p
+><pre
+><code
+  >f *** g = first f &gt;&gt;&gt; second g
+</code
+  ></pre
+><p
+>Block quote:</p
+><blockquote
+><p
+  >foo bar</p
+  ></blockquote
+>
+</body>
+</html>
