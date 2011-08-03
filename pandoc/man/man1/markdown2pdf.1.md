@@ -1,6 +1,6 @@
 % MARKDOWN2PDF(1) Pandoc User Manuals
-% John MacFarlane and Recai Oktas
-% January 8, 2008
+% John MacFarlane, Paulo Tanimoto, and Recai Oktas
+% January 29, 2011
 
 # NAME
 
@@ -42,11 +42,11 @@ packages are not included in your latex setup, they can be obtained from
 \--strict
 :   Use strict markdown syntax, with no extensions or variants.
 
-\--xetex
-:   Use xelatex instead of pdflatex to create the PDF.
-
 -N, \--number-sections
 :   Number section headings in LaTeX output.  (Default is not to number them.)
+
+\--listings
+:   Use listings package for LaTeX code blocks
 
 \--template=*FILE*
 :   Use *FILE* as a custom template for the generated document. Implies
@@ -56,10 +56,8 @@ packages are not included in your latex setup, they can be obtained from
 
 -V KEY=VAL, \--variable=*KEY:VAL*
 :   Set the template variable KEY to the value VAL when rendering the
-    document in standalone mode. This is only useful when the
-    `--template` option is used to specify a custom template, since
-    pandoc automatically sets the variables used in the default
-    templates.
+    document in standalone mode.  Use this to set the font size when
+    using the default LaTeX template: `-V fontsize=12pt`.
 
 -H *FILE*, \--include-in-header=*FILE*
 :   Include (LaTeX) contents of *FILE* at the end of the header.  Implies
@@ -71,10 +69,52 @@ packages are not included in your latex setup, they can be obtained from
 -A *FILE*, \--include-after-body=*FILE*
 :   Include (LaTeX) contents of *FILE* at the end of the document body.
 
--C *FILE*, \--custom-header=*FILE*
-:   Use contents of *FILE* as the document header. *Note: This option is
-    deprecated. Users should transition to using `--template` instead.*
+\--bibliography=*FILE*
+:   Specify bibliography database to be used in resolving
+    citations. The database type will be determined from the
+    extension of *FILE*, which may be `.xml` (MODS format),
+    `.bib` (BibTeX format), or `.json` (citeproc JSON).
+
+\--csl=*FILE*
+:   Specify [CSL] style to be used in formatting citations and
+    the bibliography. If *FILE* is not found, pandoc will look
+    for it in
+
+        $HOME/.csl
+
+    in unix and
+
+        C:\Documents And Settings\USERNAME\Application Data\csl
+
+    in Windows. If the `--csl` option is not specified, pandoc
+    will use a default style:  either `default.csl` in the
+    user data directory (see `--data-dir`), or, if that is
+    not present, the Chicago author-date style.
+
+\--data-dir*=DIRECTORY*
+:   Specify the user data directory to search for pandoc data files.
+    If this option is not specified, the default user data directory
+    will be used:
+
+        $HOME/.pandoc
+
+    in unix and
+
+        C:\Documents And Settings\USERNAME\Application Data\pandoc
+
+    in Windows. A `reference.odt`, `epub.css`, `templates` directory,
+    or `s5` directory placed in this directory will override pandoc's
+    normal defaults.
+
+\--xetex
+:   Use xelatex instead of pdflatex to create the PDF.
+
+\--luatex
+:   Use lualatex instead of pdflatex to create the PDF.
 
 # SEE ALSO
 
 `pandoc`(1), `pdflatex`(1)
+
+[CSL]: CitationStyles.org
+

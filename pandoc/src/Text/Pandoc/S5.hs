@@ -31,6 +31,8 @@ Definitions for creation of S5 powerpoint-like HTML.
 module Text.Pandoc.S5 ( s5HeaderIncludes) where
 import Text.Pandoc.Shared ( readDataFile )
 import System.FilePath ( (</>) )
+import Data.ByteString.UTF8 ( toString, fromString )
+import Data.ByteString.Base64 ( encode )
 
 s5HeaderIncludes :: Maybe FilePath -> IO String
 s5HeaderIncludes datadir = do
@@ -40,10 +42,14 @@ s5HeaderIncludes datadir = do
 
 s5Javascript :: Maybe FilePath -> IO String
 s5Javascript datadir = do
-  jsCom <- readDataFile datadir $ "s5" </> "default" </> "slides.js.comment"
-  jsPacked <- readDataFile datadir $ "s5" </> "default" </> "slides.js.packed"
-  return $ "<script type=\"text/javascript\">\n" ++ jsCom ++ jsPacked ++
-           "</script>\n"
+  js <- readDataFile datadir $ "s5" </> "default" </> "slides.min.js"
+  return $ "<script type=\"text/javascript\">\n" ++ inCDATA js ++ "</script>\n"
+
+inCDATA :: String -> String
+inCDATA s = "/*<![CDATA[*/\n" ++ s ++ "\n/*]]>*/\n"
+
+base64 :: String -> String
+base64 = toString . encode . fromString
 
 s5CSS :: Maybe FilePath -> IO String
 s5CSS datadir = do
@@ -53,5 +59,11 @@ s5CSS datadir = do
   s5OperaCSS <- readDataFile datadir $ "s5" </> "default" </> "opera.css"
   s5OutlineCSS <- readDataFile datadir $ "s5" </> "default" </> "outline.css"
   s5PrintCSS <- readDataFile datadir $ "s5" </> "default" </> "print.css"
-  return $ "<style type=\"text/css\" media=\"projection\" id=\"slideProj\">\n" ++ s5CoreCSS ++ "\n" ++ s5FramingCSS ++ "\n" ++ s5PrettyCSS ++ "\n</style>\n<style type=\"text/css\" media=\"projection\" id=\"operaFix\">\n" ++ s5OperaCSS ++ "\n</style>\n<style type=\"text/css\" media=\"screen\" id=\"outlineStyle\">\n" ++ s5OutlineCSS ++ "\n</style>\n<style type=\"text/css\" media=\"print\" id=\"slidePrint\">\n" ++ s5PrintCSS ++ "\n</style>\n"
-
+  return $ "<link rel=\"stylesheet\" type=\"text/css\" media=\"projection\" id=\"slideProj\" href=\"data:text/css;charset=utf-8;base64," ++
+          base64 (s5CoreCSS ++ "\n" ++ s5FramingCSS ++ "\n" ++ s5PrettyCSS) ++ "\" />\n" ++
+          "<link rel=\"stylesheet\" type=\"text/css\" media=\"screen\" id=\"outlineStyle\" href=\"data:text/css;charset=utf-8;base64," ++
+          base64 s5OutlineCSS ++ "\" />\n" ++
+          "<link rel=\"stylesheet\" type=\"text/css\" media=\"print\" id=\"slidePrint\" href=\"data:text/css;charset=utf-8;base64," ++
+          base64 s5PrintCSS ++ "\" />\n" ++
+          "<link rel=\"stylesheet\" type=\"text/css\" media=\"projection\" id=\"operaFix\" href=\"data:text/css;charset=utf-8;base64," ++
+          base64 s5OperaCSS ++ "\" />\n"

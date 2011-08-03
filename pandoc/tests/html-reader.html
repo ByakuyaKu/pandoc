@@ -298,40 +298,6 @@ These should not be escaped:  \$ \\ \> \[ \{
   <dd>Low-voiced stringed instrument.</dd>
 </dl>
 <hr />
-<h1>HTML Blocks</h1>
-<p>Simple block on one line:</p>
-foo<p>And nested without indentation:</p>
-foobar<p>Interpreted markdown in a table:</p>
-This is <em>emphasized</em>. And this is <strong>strong</strong><p>Here's a simple block:</p>
-foo<p>This should be a code block, though:</p>
-<pre><code>&lt;div>
-    foo
-&lt;/div>
-</code></pre>
-<p>As should this:</p>
-<pre><code>&lt;div>foo&lt;/div>
-</code></pre>
-<p>Now, nested:</p>
-foo<p>This should just be an HTML comment:</p>
-<p>Multiline:</p>
-<p>Code block:</p>
-<pre><code>&lt;!-- Comment -->
-</code></pre>
-<p>Just plain comment, with trailing spaces on the line:</p>
-<p>Code:</p>
-<pre><code>&lt;hr />
-</code></pre>
-<p>Hr's:</p>
-<hr />
-<hr />
-<hr />
-<hr />
-<hr />
-<hr />
-<hr />
-<hr />
-<hr />
-<hr />
 <h1>Inline Markup</h1>
 <p>This is <em>emphasized</em>, and so <em>is this</em>.</p>
 <p>This is <strong>strong</strong>, and so <strong>is this</strong>.</p>
@@ -340,7 +306,7 @@ foo<p>This should just be an HTML comment:</p>
 <p>So is <strong><em>this</em></strong> word.</p>
 <p><strong><em>This is strong and em.</em></strong></p>
 <p>So is <strong><em>this</em></strong> word.</p>
-<p>This is code: <code>></code>, <code>$</code>, <code>\</code>, <code>\$</code>, <code>&lt;html></code>.</p>
+<p>This is code: <code>&gt;</code>, <code>$</code>, <code>\</code>, <code>\$</code>, <code>&lt;html&gt;</code>.</p>
 <hr />
 <h1>Smart quotes, ellipses, dashes</h1>
 <p>"Hello," said the spider. "'Shelob' is my name."</p>
@@ -442,8 +408,8 @@ Email link (nobody [at] nowhere.net)<p><a href="">Empty</a>.</p>
 An e-mail address: nobody [at] nowhere.net<blockquote>
 <p>Blockquoted: <a href="http://example.com/">http://example.com/</a></p>
 </blockquote>
-<p>Auto-links should not occur here: <code>&lt;http://example.com/></code></p>
-<pre><code>or here: &lt;http://example.com/>
+<p>Auto-links should not occur here: <code>&lt;http://example.com/&gt;</code></p>
+<pre><code>or here: &lt;http://example.com/&gt;
 </code></pre>
 <hr />
 <h1>Images</h1>

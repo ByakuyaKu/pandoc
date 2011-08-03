@@ -33,15 +33,15 @@ import Text.Pandoc.XML
 import Text.Pandoc.Shared
 import Text.Pandoc.Templates (renderTemplate)
 import Text.Pandoc.Readers.TeXMath
-import Data.List ( isPrefixOf, intercalate )
+import Data.List ( isPrefixOf, intercalate, isSuffixOf )
 import Data.Char ( toLower )
-import Text.PrettyPrint.HughesPJ hiding ( Str )
 import Text.Pandoc.Highlighting (languages, languagesByExtension)
+import Text.Pandoc.Pretty
 
 -- | Convert list of authors to a docbook <author> section
 authorToDocbook :: WriterOptions -> [Inline] -> Doc
 authorToDocbook opts name' =
-  let name = render $ inlinesToDocbook opts name'
+  let name = render Nothing $ inlinesToDocbook opts name'
   in  if ',' `elem` name
          then -- last name first
               let (lastname, rest) = break (==',') name 
@@ -61,16 +61,24 @@ authorToDocbook opts name' =
 -- | Convert Pandoc document to string in Docbook format.
 writeDocbook :: WriterOptions -> Pandoc -> String
 writeDocbook opts (Pandoc (Meta tit auths dat) blocks) = 
-  let title = wrap opts tit
+  let title = inlinesToDocbook opts tit
       authors = map (authorToDocbook opts) auths
       date = inlinesToDocbook opts dat
       elements = hierarchicalize blocks
-      main     = render $ vcat (map (elementToDocbook opts) elements)
+      colwidth = if writerWrapText opts
+                    then Just $ writerColumns opts
+                    else Nothing
+      render' = render colwidth
+      opts' = if "</book>" `isSuffixOf`
+                      (removeTrailingSpace $ writerTemplate opts)
+                 then opts{ writerChapters = True }
+                 else opts
+      main     = render' $ vcat (map (elementToDocbook opts') elements)
       context = writerVariables opts ++
                 [ ("body", main)
-                , ("title", render title)
-                , ("date", render date) ] ++
-                [ ("author", render a) | a <- authors ]
+                , ("title", render' title)
+                , ("date", render' date) ] ++
+                [ ("author", render' a) | a <- authors ]
   in  if writerStandalone opts
          then renderTemplate context $ writerTemplate opts
          else main
@@ -83,9 +91,12 @@ elementToDocbook opts (Sec _ _num id' title elements) =
   let elements' = if null elements
                     then [Blk (Para [])]
                     else elements
-  in  inTags True "section" [("id",id')] $
-      inTagsSimple "title" (wrap opts title) $$
-      vcat (map (elementToDocbook opts) elements') 
+      tag = if writerChapters opts
+               then "chapter"
+               else "section"
+  in  inTags True tag [("id",id')] $
+      inTagsSimple "title" (inlinesToDocbook opts title) $$
+      vcat (map (elementToDocbook opts{ writerChapters = False }) elements') 
 
 -- | Convert a list of Pandoc blocks to Docbook.
 blocksToDocbook :: WriterOptions -> [Block] -> Doc
@@ -123,7 +134,7 @@ listItemToDocbook opts item =
 blockToDocbook :: WriterOptions -> Block -> Doc
 blockToDocbook _ Null = empty
 blockToDocbook _ (Header _ _) = empty -- should not occur after hierarchicalize
-blockToDocbook opts (Plain lst) = wrap opts lst
+blockToDocbook opts (Plain lst) = inlinesToDocbook opts lst
 blockToDocbook opts (Para [Image txt (src,_)]) =
   let capt = inlinesToDocbook opts txt
   in  inTagsIndented "figure" $
@@ -132,12 +143,13 @@ blockToDocbook opts (Para [Image txt (src,_)]) =
            (inTagsIndented "imageobject"
              (selfClosingTag "imagedata" [("fileref",src)])) $$
            inTagsSimple "textobject" (inTagsSimple "phrase" capt))
-blockToDocbook opts (Para lst) = inTagsIndented "para" $ wrap opts lst
+blockToDocbook opts (Para lst) =
+  inTagsIndented "para" $ inlinesToDocbook opts lst
 blockToDocbook opts (BlockQuote blocks) =
   inTagsIndented "blockquote" $ blocksToDocbook opts blocks
-blockToDocbook _ (CodeBlock (_,classes,_) str) = 
-  text ("<screen" ++ lang ++ ">\n") <>
-     text (escapeStringForXML str) <> text "\n</screen>"
+blockToDocbook _ (CodeBlock (_,classes,_) str) =
+  text ("<programlisting" ++ lang ++ ">") <> cr <>
+     flush (text (escapeStringForXML str) <> cr <> text "</programlisting>")
     where lang  = if null langs
                      then ""
                      else " language=\"" ++ escapeStringForXML (head langs) ++
@@ -167,27 +179,30 @@ blockToDocbook opts (OrderedList (start, numstyle, _) (first:rest)) =
   in  inTags True "orderedlist" attribs items
 blockToDocbook opts (DefinitionList lst) = 
   inTagsIndented "variablelist" $ deflistItemsToDocbook opts lst 
-blockToDocbook _ (RawHtml str) = text str -- raw XML block 
+blockToDocbook _ (RawBlock "docbook" str) = text str -- raw XML block 
+-- we allow html for compatibility with earlier versions of pandoc
+blockToDocbook _ (RawBlock "html" str) = text str -- raw XML block
+blockToDocbook _ (RawBlock _ _) = empty
 blockToDocbook _ HorizontalRule = empty -- not semantic
 blockToDocbook opts (Table caption aligns widths headers rows) =
-  let alignStrings = map alignmentToString aligns
-      captionDoc   = if null caption
+  let captionDoc   = if null caption
                         then empty
-                        else inTagsIndented "caption" 
+                        else inTagsIndented "title"
                               (inlinesToDocbook opts caption)
       tableType    = if isEmpty captionDoc then "informaltable" else "table"
-      percent w    = show (truncate (100*w) :: Integer) ++ "%"
-      coltags = if all (== 0.0) widths
-                   then empty
-                   else vcat $ map (\w ->
-                          selfClosingTag "col" [("width", percent w)]) widths
+      percent w    = show (truncate (100*w) :: Integer) ++ "*"
+      coltags = vcat $ zipWith (\w al -> selfClosingTag "colspec"
+                       ([("colwidth", percent w) | w > 0] ++
+                        [("align", alignmentToString al)])) widths aligns
       head' = if all null headers
                  then empty
                  else inTagsIndented "thead" $
-                         tableRowToDocbook opts alignStrings "th" headers
+                         tableRowToDocbook opts headers
       body' = inTagsIndented "tbody" $
-              vcat $ map (tableRowToDocbook opts alignStrings "td") rows
-  in  inTagsIndented tableType $ captionDoc $$ coltags $$ head' $$ body'
+              vcat $ map (tableRowToDocbook opts) rows
+  in  inTagsIndented tableType $ captionDoc $$
+        (inTags True "tgroup" [("cols", show (length headers))] $
+         coltags $$ head' $$ body')
 
 alignmentToString :: Alignment -> [Char]
 alignmentToString alignment = case alignment of
@@ -197,28 +212,16 @@ alignmentToString alignment = case alignment of
                                  AlignDefault -> "left"
 
 tableRowToDocbook :: WriterOptions
-                  -> [String]
-                  -> String
                   -> [[Block]]
                   -> Doc
-tableRowToDocbook opts aligns celltype cols =
-  inTagsIndented "tr" $ vcat $
-     zipWith (tableItemToDocbook opts celltype) aligns cols
+tableRowToDocbook opts cols =
+  inTagsIndented "row" $ vcat $ map (tableItemToDocbook opts) cols
 
 tableItemToDocbook :: WriterOptions
-                   -> [Char]
-                   -> [Char]
                    -> [Block]
                    -> Doc
-tableItemToDocbook opts tag align item =
-  let attrib = [("align", align)]
-  in  inTags True tag attrib $ vcat $ map (blockToDocbook opts) item
-
--- | Take list of inline elements and return wrapped doc.
-wrap :: WriterOptions -> [Inline] -> Doc
-wrap opts lst = if writerWrapText opts
-                   then fsep $ map (inlinesToDocbook opts) (splitBy Space lst)
-                   else inlinesToDocbook opts lst
+tableItemToDocbook opts item =
+  inTags True "entry" [] $ vcat $ map (blockToDocbook opts) item
 
 -- | Convert a list of inline elements to Docbook.
 inlinesToDocbook :: WriterOptions -> [Inline] -> Doc
@@ -249,22 +252,21 @@ inlineToDocbook _ Apostrophe = char '\''
 inlineToDocbook _ Ellipses = text "…"
 inlineToDocbook _ EmDash = text "—"
 inlineToDocbook _ EnDash = text "–"
-inlineToDocbook _ (Code str) = 
+inlineToDocbook _ (Code _ str) = 
   inTagsSimple "literal" $ text (escapeStringForXML str)
 inlineToDocbook opts (Math _ str) = inlinesToDocbook opts $ readTeXMath str
-inlineToDocbook _ (TeX _) = empty
-inlineToDocbook _ (HtmlInline _) = empty
-inlineToDocbook _ LineBreak = text $ "<literallayout></literallayout>" 
-inlineToDocbook _ Space = char ' '
+inlineToDocbook _ (RawInline _ _) = empty
+inlineToDocbook _ LineBreak = inTagsSimple "literallayout" empty
+inlineToDocbook _ Space = space
 inlineToDocbook opts (Link txt (src, _)) =
   if isPrefixOf "mailto:" src
      then let src' = drop 7 src
               emailLink = inTagsSimple "email" $ text $ 
                           escapeStringForXML $ src'
-          in  if txt == [Code src']
-                 then emailLink
-                 else inlinesToDocbook opts txt <+> char '(' <> emailLink <> 
-                      char ')'
+          in  case txt of
+               [Code _ s] | s == src' -> emailLink
+               _             -> inlinesToDocbook opts txt <+>
+                                  char '(' <> emailLink <> char ')'
      else (if isPrefixOf "#" src
               then inTags False "link" [("linkend", drop 1 src)]
               else inTags False "ulink" [("url", src)]) $
@@ -275,6 +277,6 @@ inlineToDocbook _ (Image _ (src, tit)) =
                    else inTagsIndented "objectinfo" $
                         inTagsIndented "title" (text $ escapeStringForXML tit)
   in  inTagsIndented "inlinemediaobject" $ inTagsIndented "imageobject" $
-      titleDoc $$ selfClosingTag "imagedata" [("fileref", src)] 
+      titleDoc $$ selfClosingTag "imagedata" [("fileref", src)]
 inlineToDocbook opts (Note contents) = 
   inTagsIndented "footnote" $ blocksToDocbook opts contents

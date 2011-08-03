@@ -31,7 +31,8 @@
 ## URLs with spaces
 
 [foo](/bar and baz)
-[foo](/bar and baz )
+[foo](/bar
+ and baz )
 [foo]( /bar  and  baz  )
 [foo](bar baz  "title" )
 
@@ -100,3 +101,25 @@ Explanation of examples (@foo) and (@bar).
 
 (@bar) Third example.
 
+## Macros
+
+\newcommand{\tuple}[1]{\langle #1 \rangle}
+
+$\tuple{x,y}$
+
+## Case-insensitive references
+
+[Fum]
+
+[FUM]
+
+[bat]
+
+[fum]: /fum
+[BAT]: /bat
+
+## Curly smart quotes
+
+“Hi”
+
+‘Hi’

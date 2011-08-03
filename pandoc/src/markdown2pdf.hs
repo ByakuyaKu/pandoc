@@ -2,23 +2,64 @@ module Main where
 
 import Data.List (isInfixOf, intercalate, isPrefixOf)
 import Data.Maybe (isNothing)
+import qualified Data.ByteString as BS
+import Codec.Binary.UTF8.String (decodeString, encodeString)
+import Data.ByteString.UTF8 (toString)
+import Control.Monad (unless, guard, liftM, when)
+import Control.Concurrent (putMVar, takeMVar, newEmptyMVar, forkIO)
+import Control.Exception (tryJust, bracket, evaluate)
 
-import Control.Monad (unless, guard)
-import Control.Exception (tryJust, bracket)
-
-import System.IO (stderr)
+import System.IO
 import System.IO.Error (isDoesNotExistError)
 import System.Environment ( getArgs, getProgName )
 import qualified Text.Pandoc.UTF8 as UTF8
 import System.Exit (ExitCode (..), exitWith)
 import System.FilePath
 import System.Directory
-import System.Process (readProcessWithExitCode)
+import System.Process
 
+-- A variant of 'readProcessWithExitCode' that does not
+-- cause an error if the output is not UTF-8. (Copied
+-- with slight variants from 'System.Process'.)
+readProcessWithExitCode'
+    :: FilePath                 -- ^ command to run
+    -> [String]                 -- ^ any arguments
+    -> String                   -- ^ standard input
+    -> IO (ExitCode,String,String) -- ^ exitcode, stdout, stderr
+readProcessWithExitCode' cmd args input = do
+    (Just inh, Just outh, Just errh, pid) <-
+        createProcess (proc cmd args){ std_in  = CreatePipe,
+                                       std_out = CreatePipe,
+                                       std_err = CreatePipe }
+
+    outMVar <- newEmptyMVar
+
+    -- fork off a thread to start consuming stdout
+    out  <- liftM toString $ BS.hGetContents outh
+    _ <- forkIO $ evaluate (length out) >> putMVar outMVar ()
+
+    -- fork off a thread to start consuming stderr
+    err  <- liftM toString $ BS.hGetContents errh
+    _ <- forkIO $ evaluate (length err) >> putMVar outMVar ()
+
+    -- now write and flush any input
+    when (not (null input)) $ do hPutStr inh input; hFlush inh
+    hClose inh -- done with stdin
+
+    -- wait on the output
+    takeMVar outMVar
+    takeMVar outMVar
+    hClose outh
+
+    -- wait on the process
+    ex <- waitForProcess pid
+
+    return (ex, out, err)
 
 run :: FilePath -> [String] -> IO (Either String String)
 run file opts = do
-  (code, out, err) <- readProcessWithExitCode file opts ""
+  (code, out, err) <- readProcessWithExitCode' (encodeString file)
+                        (map encodeString opts) ""
   let msg = out ++ err
   case code of
     ExitFailure _ -> return $ Left  $! msg
@@ -37,7 +78,7 @@ parsePandocArgs args = do
 
 runPandoc :: [String] -> FilePath -> IO (Either String FilePath)
 runPandoc inputsAndArgs output = do
-  let texFile = replaceExtension output "tex"
+  let texFile = addExtension output "tex"
   result <- run "pandoc" $
     ["-s", "--no-wrap", "-r", "markdown", "-w", "latex"]
     ++ inputsAndArgs ++ ["-o", texFile]
@@ -46,11 +87,12 @@ runPandoc inputsAndArgs output = do
 runLatexRaw :: String -> FilePath -> IO (Either (Either String String) FilePath)
 runLatexRaw latexProgram file = do
   -- we ignore the ExitCode because pdflatex always fails the first time
-  run latexProgram ["-interaction=batchmode", "-output-directory",
-    takeDirectory file, dropExtension file] >> return ()
+  run latexProgram ["-halt-on-error", "-interaction", "nonstopmode",
+    "-output-directory", takeDirectory file, dropExtension file] >> return ()
   let pdfFile = replaceExtension file "pdf"
   let logFile = replaceExtension file "log"
-  txt <- tryJust (guard . isDoesNotExistError) (UTF8.readFile logFile)
+  txt <- tryJust (guard . isDoesNotExistError)
+         (liftM toString $ BS.readFile logFile)
   let  checks = checkLatex $ either (const "") id txt
   case checks of
   -- err  , bib , ref , msg
@@ -77,7 +119,9 @@ checkLatex ""  = (True, False, False, "Could not read log file")
 checkLatex txt = (err , bib, ref, unlines $! msgs ++ tips)
   where
   xs `oneOf` x = any (flip isInfixOf x) xs
-  msgs = filter (oneOf ["Error:", "Warning:"]) (lines txt)
+  msgs = dropWhile (not . errorline) $ lines txt
+  errorline ('!':_) = True
+  errorline _ = False
   tips = checkPackages msgs
   err = any (oneOf ["!", "LaTeX Error:", "Latex Error:"]) msgs
   bib = any (oneOf ["Warning: Citation"
@@ -120,16 +164,16 @@ exit x = do
 
 saveStdin :: FilePath -> IO (Either String FilePath)
 saveStdin file = do
-  text <- UTF8.getContents
+  text <- liftM toString $ BS.getContents
   UTF8.writeFile file text
-  fileExist <- doesFileExist file
+  fileExist <- doesFileExist (encodeString file)
   case fileExist of
     False -> return $ Left $! "Could not create " ++ file
     True  -> return $ Right file
 
 saveOutput :: FilePath -> FilePath -> IO ()
 saveOutput input output = do
-  copyFile input output
+  copyFile (encodeString input) (encodeString output)
   UTF8.hPutStrLn stderr $! "Created " ++ output
 
 main :: IO ()
@@ -145,34 +189,40 @@ main = bracket
 
   -- run computation
   $ \tmp -> do
-    args <- getArgs
+    args <- liftM (map decodeString) getArgs
     -- check for invalid arguments and print help message if needed
     let goodopts = ["-f","-r","-N", "-p","-R","-H","-B","-A", "-C","-o","-V"]
     let goodoptslong = ["--from","--read","--strict",
                    "--preserve-tabs","--tab-stop","--parse-raw",
-                   "--toc","--table-of-contents", "--xetex",
+                   "--toc","--table-of-contents", "--xetex", "--luatex",
                    "--number-sections","--include-in-header",
                    "--include-before-body","--include-after-body",
                    "--custom-header","--output",
                    "--template", "--variable",
-                   "--csl", "--biblio", "--biblio-format"]
+                   "--csl", "--bibliography", "--data-dir", "--listings"]
     let isOpt ('-':_) = True
         isOpt _       = False
     let opts = filter isOpt args
     -- note that a long option can come in this form: --opt=val
     let isGoodopt x = x `elem` (goodopts ++ goodoptslong) ||
                       any (\o -> (o ++ "=") `isPrefixOf` x) goodoptslong
+    let markdown2pdfOpts = ["--xetex","--luatex"]
     unless (all isGoodopt opts) $ do
       (code, out, _err) <- readProcessWithExitCode "pandoc" ["--help"] ""
       UTF8.putStrLn "markdown2pdf [OPTIONS] [FILES]\nOptions:"
       UTF8.putStr $ unlines $
-               filter (\l -> any (`isInfixOf` l) goodoptslong) $ lines out
+                 filter (\l -> any (`isInfixOf` l) goodoptslong) (lines out)
+                 ++ map (replicate 24 ' ' ++) markdown2pdfOpts
       exitWith code
+
+    let args' = filter (`notElem` markdown2pdfOpts) args
 
     -- check for executable files
     let latexProgram = if "--xetex" `elem` opts
                           then "xelatex"
-                          else "pdflatex"
+                          else if "--luatex" `elem` opts
+                                  then "lualatex"
+                                  else "pdflatex"
     let execs = ["pandoc", latexProgram, "bibtex"]
     paths <- mapM findExecutable execs
     let miss = map snd $ filter (isNothing . fst) $ zip paths execs
@@ -180,7 +230,7 @@ main = bracket
 
     -- parse arguments
     -- if no input given, use 'stdin'
-    pandocArgs <- parsePandocArgs args
+    pandocArgs <- parsePandocArgs args'
     (input, output) <- case pandocArgs of
       Nothing      -> exit "Could not parse arguments"
       Just ([],out) -> do
@@ -191,7 +241,7 @@ main = bracket
       -- no need because we'll pass all arguments to pandoc
       Just (_ ,out) -> return ([], out)
     -- run pandoc
-    pandocRes <- runPandoc (input ++ args) $ replaceDirectory output tmp
+    pandocRes <- runPandoc (input ++ args') $ replaceDirectory output tmp
     case pandocRes of
       Left err -> exit err
       Right texFile  -> do

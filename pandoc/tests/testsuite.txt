@@ -431,21 +431,21 @@ Hr's:
 
 <hr>
 
-<hr/>
+<hr />
 
 <hr />
 
 <hr>   
 
-<hr/>  
+<hr />  
 
 <hr /> 
 
 <hr class="foo" id="bar" />
 
-<hr class="foo" id="bar"/>
+<hr class="foo" id="bar" />
 
-<hr class="foo" id="bar" >
+<hr class="foo" id="bar">
 
 -----
 
@@ -496,7 +496,7 @@ Some dashes:  one---two --- three--four -- five.
 
 Dashes between numbers: 5-7, 255-66, 1987-1999. 
 
-Ellipses...and. . .and . . . .
+Ellipses...and...and....
 
 -----
 
@@ -631,7 +631,6 @@ Indented [thrice][].
 This should [not][] be a link.
 
  [once]: /url
-
   [twice]: /url
 
    [thrice]: /url

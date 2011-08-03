@@ -57,11 +57,18 @@ module Text.Pandoc
                ( 
                -- * Definitions
                module Text.Pandoc.Definition
+               -- * Generics
+               , module Text.Pandoc.Generic
+               -- * Lists of readers and writers
+               , readers
+               , writers
                -- * Readers: converting /to/ Pandoc format
                , readMarkdown
                , readRST
                , readLaTeX
                , readHtml
+               , readTextile
+               , readNative
                -- * Parser state used in readers
                , ParserState (..)
                , defaultParserState
@@ -84,25 +91,34 @@ module Text.Pandoc
                , writeOpenDocument
                , writeMan
                , writeMediaWiki
+               , writeTextile
                , writeRTF
                , writeODT
                , writeEPUB
+               , writeOrg
                -- * Writer options used in writers 
                , WriterOptions (..)
                , HTMLSlideVariant (..)
                , HTMLMathMethod (..)
+               , CiteMethod (..)
                , defaultWriterOptions
                -- * Rendering templates and default templates
                , module Text.Pandoc.Templates
                -- * Version
                , pandocVersion
+               -- * Miscellaneous
+               , rtfEmbedImage
+               , jsonFilter
              ) where
 
 import Text.Pandoc.Definition
+import Text.Pandoc.Generic
 import Text.Pandoc.Readers.Markdown
 import Text.Pandoc.Readers.RST
 import Text.Pandoc.Readers.LaTeX
 import Text.Pandoc.Readers.HTML
+import Text.Pandoc.Readers.Textile
+import Text.Pandoc.Readers.Native
 import Text.Pandoc.Writers.Native
 import Text.Pandoc.Writers.Markdown
 import Text.Pandoc.Writers.RST 
@@ -117,12 +133,69 @@ import Text.Pandoc.Writers.OpenDocument
 import Text.Pandoc.Writers.Man
 import Text.Pandoc.Writers.RTF 
 import Text.Pandoc.Writers.MediaWiki
+import Text.Pandoc.Writers.Textile
+import Text.Pandoc.Writers.Org
 import Text.Pandoc.Templates
 import Text.Pandoc.Parsing
 import Text.Pandoc.Shared
 import Data.Version (showVersion)
+import Text.JSON.Generic
 import Paths_pandoc (version)
 
 -- | Version number of pandoc library.
 pandocVersion :: String
 pandocVersion = showVersion version
+
+-- | Association list of formats and readers.
+readers :: [(String, ParserState -> String -> Pandoc)]
+readers = [("native"       , \_ -> readNative)
+          ,("json"         , \_ -> decodeJSON)
+          ,("markdown"     , readMarkdown)
+          ,("markdown+lhs" , \st ->
+                             readMarkdown st{ stateLiterateHaskell = True})
+          ,("rst"          , readRST)
+          ,("rst+lhs"      , \st ->
+                             readRST st{ stateLiterateHaskell = True})
+          ,("textile"      , readTextile) -- TODO : textile+lhs 
+          ,("html"         , readHtml)
+          ,("latex"        , readLaTeX)
+          ,("latex+lhs"    , \st ->
+                             readLaTeX st{ stateLiterateHaskell = True})
+          ]
+
+-- | Association list of formats and writers (omitting the
+-- binary writers, odt and epub).
+writers :: [ ( String, WriterOptions -> Pandoc -> String ) ]
+writers = [("native"       , writeNative)
+          ,("json"         , \_ -> encodeJSON)
+          ,("html"         , writeHtmlString)
+          ,("html+lhs"     , \o ->
+                             writeHtmlString o{ writerLiterateHaskell = True })
+          ,("s5"           , writeHtmlString)
+          ,("slidy"        , writeHtmlString)
+          ,("docbook"      , writeDocbook)
+          ,("opendocument" , writeOpenDocument)
+          ,("latex"        , writeLaTeX)
+          ,("latex+lhs"    , \o ->
+                             writeLaTeX o{ writerLiterateHaskell = True })
+          ,("context"      , writeConTeXt)
+          ,("texinfo"      , writeTexinfo)
+          ,("man"          , writeMan)
+          ,("markdown"     , writeMarkdown)
+          ,("markdown+lhs" , \o ->
+                             writeMarkdown o{ writerLiterateHaskell = True })
+          ,("plain"        , writePlain)
+          ,("rst"          , writeRST)
+          ,("rst+lhs"      , \o ->
+                             writeRST o{ writerLiterateHaskell = True })
+          ,("mediawiki"    , writeMediaWiki)
+          ,("textile"      , writeTextile)
+          ,("rtf"          , writeRTF)
+          ,("org"          , writeOrg)
+          ]
+
+-- | Converts a transformation on the Pandoc AST into a function
+-- that reads and writes a JSON-encoded string.  This is useful
+-- for writing small scripts.
+jsonFilter :: (Pandoc -> Pandoc) -> String -> String
+jsonFilter f = encodeJSON . f . decodeJSON

@@ -1,25 +1,30 @@
-$if(legacy-header)$
-$legacy-header$
-$else$
-\documentclass{article}
+\documentclass$if(fontsize)$[$fontsize$]$endif${article}
 \usepackage{amssymb,amsmath}
-$if(xetex)$
-\usepackage{ifxetex}
+\usepackage{ifxetex,ifluatex}
 \ifxetex
   \usepackage{fontspec,xltxtra,xunicode}
   \defaultfontfeatures{Mapping=tex-text,Scale=MatchLowercase}
 \else
-  \usepackage[mathletters]{ucs}
-  \usepackage[utf8x]{inputenc}
+  \ifluatex
+    \usepackage{fontspec}
+    \defaultfontfeatures{Mapping=tex-text,Scale=MatchLowercase}
+  \else
+    \usepackage[utf8]{inputenc}
+  \fi
 \fi
-$else$
-\usepackage[mathletters]{ucs}
-\usepackage[utf8x]{inputenc}
+$if(natbib)$
+\usepackage{natbib}
+\bibliographystyle{plainnat}
+$endif$
+$if(biblatex)$
+\usepackage{biblatex}
+$if(biblio-files)$
+\bibliography{$biblio-files$}
+$endif$
 $endif$
 $if(lhs)$
 \usepackage{listings}
 \lstnewenvironment{code}{\lstset{language=Haskell,basicstyle=\small\ttfamily}}{}
-$endif$
 $endif$
 $if(verbatim-in-note)$
 \usepackage{fancyvrb}
@@ -34,16 +39,8 @@ $if(fancy-enums)$
 \usepackage{enumerate}
 $endif$
 $if(tables)$
-\usepackage{array}
-% This is needed because raggedright in table elements redefines \\:
-\newcommand{\PreserveBackslash}[1]{\let\temp=\\#1\let\\=\temp}
-\let\PBS=\PreserveBackslash
-$endif$
-$if(strikeout)$
-\usepackage[normalem]{ulem}
-$endif$
-$if(subscript)$
-\newcommand{\textsubscr}[1]{\ensuremath{_{\scriptsize\textrm{#1}}}}
+\usepackage{ctable}
+\usepackage{float} % provides the H option for float placement
 $endif$
 $if(url)$
 \usepackage{url}
@@ -60,9 +57,28 @@ $if(graphics)$
 \let\Oldincludegraphics\includegraphics
 \renewcommand{\includegraphics}[1]{\Oldincludegraphics[width=\maxwidth]{#1}}
 $endif$
-\usepackage[breaklinks=true,unicode=true]{hyperref}
+\ifxetex
+  \usepackage[setpagesize=false, % page size defined by xetex
+              unicode=false, % unicode breaks when used with xetex
+              xetex]{hyperref}
+\else
+  \usepackage[unicode=true]{hyperref}
+\fi
+\hypersetup{breaklinks=true, pdfborder={0 0 0}}
+$if(strikeout)$
+\usepackage[normalem]{ulem}
+% avoid problems with \sout in headers with hyperref:
+\pdfstringdefDisableCommands{\renewcommand{\sout}{}}
+$endif$
+$if(subscript)$
+\newcommand{\textsubscr}[1]{\ensuremath{_{\scriptsize\textrm{#1}}}}
+$endif$
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{6pt plus 2pt minus 1pt}
+\setlength{\emergencystretch}{3em}  % prevent overfull lines
+$if(listings)$
+\usepackage{listings}
+$endif$
 $if(numbersections)$
 $else$
 \setcounter{secnumdepth}{0}
@@ -78,7 +94,7 @@ $if(title)$
 \title{$title$}
 $endif$
 $if(author)$
-\author{$for(author)$$author$$sep$\\$endfor$}
+\author{$for(author)$$author$$sep$ \and $endfor$}
 $endif$
 $if(date)$
 \date{$date$}
@@ -98,9 +114,26 @@ $if(toc)$
 
 $endif$
 $body$
+
+$if(natbib)$
+$if(biblio-files)$
+$if(biblio-title)$
+$if(book-class)$
+\renewcommand\bibname{$biblio-title$}
+$else$
+\renewcommand\refname{$biblio-title$}
+$endif$
+$endif$
+\bibliography{$biblio-files$}
+
+$endif$
+$endif$
+$if(biblatex)$
+\printbibliography$if(biblio-title)$[title=$biblio-title$]$endif$
+
+$endif$
 $for(include-after)$
-
 $include-after$
-$endfor$
 
+$endfor$
 \end{document}

@@ -29,6 +29,7 @@ Conversion of 'Pandoc' documents to ODT.
 -}
 module Text.Pandoc.Writers.ODT ( writeODT ) where
 import Data.IORef
+import Data.List ( isPrefixOf )
 import System.FilePath ( (</>), takeExtension )
 import qualified Data.ByteString.Lazy as B
 import Data.ByteString.Lazy.UTF8 ( fromString )
@@ -36,10 +37,15 @@ import Codec.Archive.Zip
 import System.Time
 import Paths_pandoc ( getDataFileName )
 import Text.Pandoc.Shared ( WriterOptions(..) )
+import Text.Pandoc.MIME ( getMimeType )
 import Text.Pandoc.Definition
+import Text.Pandoc.Generic
 import Text.Pandoc.Writers.OpenDocument ( writeOpenDocument )
 import System.Directory
 import Control.Monad (liftM)
+import Network.URI ( unEscapeString )
+import Text.Pandoc.XML
+import Text.Pandoc.Pretty
 
 -- | Produce an ODT file from a Pandoc document.
 writeODT :: Maybe FilePath -- ^ Path specified by --reference-odt
@@ -63,19 +69,42 @@ writeODT mbRefOdt opts doc = do
   -- handle pictures
   picEntriesRef <- newIORef ([] :: [Entry])
   let sourceDir = writerSourceDirectory opts
-  doc' <- processWithM (transformPic sourceDir picEntriesRef) doc
-  let newContents = writeOpenDocument opts doc'
+  doc' <- bottomUpM (transformPic sourceDir picEntriesRef) doc
+  let newContents = writeOpenDocument opts{writerWrapText = False} doc'
   (TOD epochtime _) <- getClockTime
   let contentEntry = toEntry "content.xml" epochtime $ fromString newContents
   picEntries <- readIORef picEntriesRef
-  let archive = foldr addEntryToArchive refArchive (contentEntry : picEntries)
-  return $ fromArchive archive
+  let archive = foldr addEntryToArchive refArchive $ contentEntry : picEntries
+  -- construct META-INF/manifest.xml based on archive
+  let toFileEntry fp = case getMimeType fp of
+                        Nothing  -> empty
+                        Just m   -> selfClosingTag "manifest:file-entry"
+                                     [("manifest:media-type", m)
+                                     ,("manifest:full-path", fp)
+                                     ]
+  let files = [ ent | ent <- filesInArchive archive, not ("META-INF" `isPrefixOf` ent) ]
+  let manifestEntry = toEntry "META-INF/manifest.xml" epochtime
+        $ fromString $ show
+        $ text "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+        $$
+         ( inTags True "manifest:manifest"
+            [("xmlns:manifest","urn:oasis:names:tc:opendocument:xmlns:manifest:1.0")]
+            $ ( selfClosingTag "manifest:file-entry"
+                 [("manifest:media-type","application/vnd.oasis.opendocument.text")
+                 ,("manifest:version","1.2")
+                 ,("manifest:full-path","/")]
+                $$ vcat ( map toFileEntry $ files )
+              )
+         )
+  let archive' = addEntryToArchive manifestEntry archive
+  return $ fromArchive archive'
 
 transformPic :: FilePath -> IORef [Entry] -> Inline -> IO Inline
 transformPic sourceDir entriesRef (Image lab (src,tit)) = do
+  let src' = unEscapeString src
   entries <- readIORef entriesRef
-  let newsrc = "Pictures/" ++ show (length entries) ++ takeExtension src
-  catch (readEntry [] (sourceDir </> src) >>= \entry ->
+  let newsrc = "Pictures/" ++ show (length entries) ++ takeExtension src'
+  catch (readEntry [] (sourceDir </> src') >>= \entry ->
            modifyIORef entriesRef (entry{ eRelativePath = newsrc } :) >>
            return (Image lab (newsrc, tit)))
         (\_ -> return (Emph lab))

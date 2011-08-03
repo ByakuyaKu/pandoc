@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"> 
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
 <head>
-  <title>$if(title-prefix)$$title-prefix$ - $endif$$if(pagetitle)$$pagetitle$$endif$</title>
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
   <meta name="generator" content="pandoc" />
 $for(author)$
@@ -13,21 +12,27 @@ $if(date)$
   <meta name="date" content="$date$" />
 $endif$
 $if(highlighting-css)$
+  <title>$if(title-prefix)$$title-prefix$ - $endif$$if(pagetitle)$$pagetitle$$endif$</title>
   <style type="text/css">
+/*<![CDATA[*/
 $highlighting-css$
+/*]]>*/
   </style>
 $endif$
-$for(css)$
-  <link rel="stylesheet" href="$css$" type="text/css" />
-$endfor$
 $if(slidy-css)$
   <style type="text/css">
+/*<![CDATA[*/
 $slidy-css$
+/*]]>*/
   </style>
 $else$
-  <link rel="stylesheet" type="text/css" media="screen, projection, print" 
-    href="http://www.w3.org/Talks/Tools/Slidy/slidy.css" /> 
+  <link rel="stylesheet" type="text/css" media="screen, projection, print"
+    href="$slidy-url$/styles/slidy.css" />
 $endif$
+$for(css)$
+  <link rel="stylesheet" type="text/css" media="screen, projection, print"
+   href="$css$" />
+$endfor$
 $if(math)$
   $math$
 $endif$
@@ -35,12 +40,17 @@ $for(header-includes)$
   $header-includes$
 $endfor$
 $if(slidy-js)$
-  <script type="text/javascript" charset="utf-8">
+<script type="text/javascript" charset="utf-8">
+/*<![CDATA[*/
 $slidy-js$
-  </script>
+/*]]>*/
+</script>
 $else$
-  <script src="http://www.w3.org/Talks/Tools/Slidy/slidy.js.gz"
+  <script src="$slidy-url$/scripts/slidy.js.gz"
     charset="utf-8" type="text/javascript"></script>
+$endif$
+$if(duration)$
+  <meta name="duration" content="$duration$" />
 $endif$
 </head>
 <body>
@@ -48,13 +58,13 @@ $for(include-before)$
 $include-before$
 $endfor$
 $if(title)$
-<div class="slide cover title">
+<div class="slide titlepage">
   <h1 class="title">$title$</h1>
   <p class="author">
 $for(author)$$author$$sep$<br/>$endfor$
   </p>
 $if(date)$
-  <p class="date">$date$</p> 
+  <p class="date">$date$</p>
 $endif$
 </div>
 $endif$

@@ -39,12 +39,15 @@ import Codec.Archive.Zip
 import System.Time
 import Text.Pandoc.Shared hiding ( Element )
 import Text.Pandoc.Definition
+import Text.Pandoc.Generic
 import Control.Monad (liftM)
 import Text.XML.Light hiding (ppTopElement)
 import Text.Pandoc.UUID
 import Text.Pandoc.Writers.HTML
 import Text.Pandoc.Writers.Markdown ( writePlain )
 import Data.Char ( toLower )
+import System.Directory ( copyFile )
+import Network.URI ( unEscapeString )
 
 -- | Produce an EPUB file from a Pandoc document.
 writeEPUB :: Maybe String   -- ^ EPUB stylesheet specified at command line
@@ -58,9 +61,26 @@ writeEPUB mbStylesheet opts doc@(Pandoc meta _) = do
                   , writerStandalone = True
                   , writerWrapText = False }
   let sourceDir = writerSourceDirectory opts'
+  let vars = writerVariables opts'
+  let mbCoverImage = lookup "epub-cover-image" vars
+
+  -- cover page
+  (cpgEntry, cpicEntry) <-
+                case mbCoverImage of
+                     Nothing   -> return ([],[])
+                     Just img  -> do
+                       let coverImage = "cover-image" ++ takeExtension img
+                       copyFile img coverImage
+                       let cpContent = fromString $ writeHtmlString
+                             opts'{writerTemplate = pageTemplate
+                                  ,writerVariables =
+                                    ("coverimage",coverImage):vars}
+                               (Pandoc meta [])
+                       imgContent <- B.readFile img
+                       return ( [mkEntry "cover.xhtml" cpContent]
+                              , [mkEntry coverImage imgContent] )
 
   -- title page
-  let vars = writerVariables opts'
   let tpContent = fromString $ writeHtmlString
                      opts'{writerTemplate = pageTemplate
                           ,writerVariables = ("titlepage","yes"):vars}
@@ -69,7 +89,7 @@ writeEPUB mbStylesheet opts doc@(Pandoc meta _) = do
 
   -- handle pictures
   picsRef <- newIORef []
-  Pandoc _ blocks <- liftM (processWith transformBlock) $ processWithM
+  Pandoc _ blocks <- liftM (bottomUp transformBlock) $ bottomUpM
        (transformInlines (writerHTMLMathMethod opts) sourceDir picsRef) doc
   pics <- readIORef picsRef
   let readPicEntry (oldsrc, newsrc) = readEntry [] oldsrc >>= \e ->
@@ -83,8 +103,7 @@ writeEPUB mbStylesheet opts doc@(Pandoc meta _) = do
   let chunks = splitByIndices h1Indices blocks
   let titleize (Header 1 xs : ys) = Pandoc meta{docTitle = xs} ys
       titleize xs                 = Pandoc meta xs
-  let chapToHtml = writeHtmlString opts'{ writerTemplate = pageTemplate
-                                        , writerHTMLMathMethod = PlainMath }
+  let chapToHtml = writeHtmlString opts'{ writerTemplate = pageTemplate }
   let chapters = map titleize chunks
   let chapterToEntry :: Int -> Pandoc -> Entry
       chapterToEntry num chap = mkEntry ("ch" ++ show num ++ ".xhtml") $
@@ -116,17 +135,21 @@ writeEPUB mbStylesheet opts doc@(Pandoc meta _) = do
                           ,("xmlns","http://www.idpf.org/2007/opf")
                           ,("unique-identifier","BookId")] $
           [ metadataElement (writerEPUBMetadata opts')
-              uuid lang plainTitle plainAuthors
+              uuid lang plainTitle plainAuthors mbCoverImage
           , unode "manifest" $
              [ unode "item" ! [("id","ncx"), ("href","toc.ncx")
                               ,("media-type","application/x-dtbncx+xml")] $ ()
              , unode "item" ! [("id","style"), ("href","stylesheet.css")
                               ,("media-type","text/css")] $ ()
              ] ++
-             map chapterNode (tpEntry : chapterEntries) ++
-             map pictureNode picEntries
+             map chapterNode (cpgEntry ++ (tpEntry : chapterEntries)) ++
+             map pictureNode (cpicEntry ++ picEntries)
           , unode "spine" ! [("toc","ncx")] $
-              map chapterRefNode (tpEntry : chapterEntries)
+              case mbCoverImage of
+                    Nothing -> []
+                    Just _ -> [ unode "itemref" !
+                                [("idref", "cover"),("linear","no")] $ () ]
+              ++ map chapterRefNode (tpEntry : chapterEntries)
           ]
   let contentsEntry = mkEntry "content.opf" contentsData
 
@@ -141,7 +164,7 @@ writeEPUB mbStylesheet opts doc@(Pandoc meta _) = do
   let tocData = fromString $ ppTopElement $
         unode "ncx" ! [("version","2005-1")
                        ,("xmlns","http://www.daisy.org/z3986/2005/ncx/")] $
-          [ unode "head"
+          [ unode "head" $
              [ unode "meta" ! [("name","dtb:uid")
                               ,("content", show uuid)] $ ()
              , unode "meta" ! [("name","dtb:depth")
@@ -150,7 +173,10 @@ writeEPUB mbStylesheet opts doc@(Pandoc meta _) = do
                               ,("content", "0")] $ ()
              , unode "meta" ! [("name","dtb:maxPageNumber")
                               ,("content", "0")] $ ()
-             ] 
+             ] ++ case mbCoverImage of
+                        Nothing  -> []
+                        Just _   -> [unode "meta" ! [("name","cover"),
+                                            ("content","cover-image")] $ ()]
           , unode "docTitle" $ unode "text" $ plainTitle
           , unode "navMap" $ zipWith3 navPointNode (tpEntry : chapterEntries)
                                 [1..(length chapterEntries + 1)]
@@ -180,11 +206,12 @@ writeEPUB mbStylesheet opts doc@(Pandoc meta _) = do
   -- construct archive
   let archive = foldr addEntryToArchive emptyArchive
                  (mimetypeEntry : containerEntry : stylesheetEntry : tpEntry :
-                  contentsEntry : tocEntry : (picEntries ++ chapterEntries) )
+                  contentsEntry : tocEntry :
+                  (picEntries ++ cpicEntry ++ cpgEntry ++ chapterEntries) )
   return $ fromArchive archive
 
-metadataElement :: String -> UUID -> String -> String -> [String] -> Element
-metadataElement metadataXML uuid lang title authors =
+metadataElement :: String -> UUID -> String -> String -> [String] -> Maybe a -> Element
+metadataElement metadataXML uuid lang title authors mbCoverImage =
   let userNodes = parseXML metadataXML
       elt = unode "metadata" ! [("xmlns:dc","http://purl.org/dc/elements/1.1/")
                                ,("xmlns:opf","http://www.idpf.org/2007/opf")] $
@@ -199,7 +226,9 @@ metadataElement metadataXML uuid lang title authors =
            [ unode "dc:language" lang | not (elt `contains` "language") ] ++
            [ unode "dc:identifier" ! [("id","BookId")] $ show uuid |
                not (elt `contains` "identifier") ] ++
-           [ unode "dc:creator" ! [("opf:role","aut")] $ a | a <- authors ]
+           [ unode "dc:creator" ! [("opf:role","aut")] $ a | a <- authors ] ++
+           [ unode "meta" ! [("name","cover"), ("content","cover-image")] $ () |
+               not (isNothing mbCoverImage) ]
   in  elt{ elContent = elContent elt ++ map Elem newNodes }
 
 transformInlines :: HTMLMathMethod
@@ -210,9 +239,10 @@ transformInlines :: HTMLMathMethod
 transformInlines _ _ _ (Image lab (src,_) : xs) | isNothing (imageTypeOf src) =
   return $ Emph lab : xs
 transformInlines _ sourceDir picsRef (Image lab (src,tit) : xs) = do
+  let src' = unEscapeString src
   pics <- readIORef picsRef
-  let oldsrc = sourceDir </> src
-  let ext = takeExtension src
+  let oldsrc = sourceDir </> src'
+  let ext = takeExtension src'
   newsrc <- case lookup oldsrc pics of
                   Just n  -> return n
                   Nothing -> do
@@ -232,13 +262,13 @@ transformInlines (MathML _) _ _ (x@(Math _ _) : xs) = do
        mathml ++ "</ops:case><ops:default>" ++ fallback ++ "</ops:default>" ++
        "</ops:switch>"
       result = if "<math" `isPrefixOf` mathml then inOps else mathml
-  return $ HtmlInline result : xs
-transformInlines _ _ _ (HtmlInline _ : xs) = return $ Str "" : xs
+  return $ RawInline "html" result : xs
+transformInlines _ _ _ (RawInline _ _ : xs) = return $ Str "" : xs
 transformInlines _ _ _ (Link lab (_,_) : xs) = return $ lab ++ xs
 transformInlines _ _ _ xs = return xs
 
 transformBlock :: Block -> Block
-transformBlock (RawHtml _) = Null
+transformBlock (RawBlock _ _) = Null
 transformBlock x = x
 
 (!) :: Node t => (t -> Element) -> [(String, String)] -> t -> Element
@@ -265,9 +295,17 @@ pageTemplate = unlines
  , "<html xmlns=\"http://www.w3.org/1999/xhtml\">"
  , "<head>"
  , "<title>$title$</title>"
+ , "$if(coverimage)$"
+ , "<style type=\"text/css\">img{ max-width: 100%; }</style>"
+ , "$endif$"
  , "<link href=\"stylesheet.css\" type=\"text/css\" rel=\"stylesheet\" />"
  , "</head>"
  , "<body>"
+ , "$if(coverimage)$"
+ , "<div id=\"cover-image\">"
+ , "<img src=\"$coverimage$\" alt=\"$title$\" />"
+ , "</div>"
+ , "$else$"
  , "$if(titlepage)$"
  , "<h1 class=\"title\">$title$</h1>"
  , "$for(author)$"
@@ -275,6 +313,10 @@ pageTemplate = unlines
  , "$endfor$"
  , "$else$"
  , "<h1>$title$</h1>"
+ , "$if(toc)$"
+ , "$toc$"
+ , "$endif$"
+ , "$endif$"
  , "$body$"
  , "$endif$"
  , "</body>"

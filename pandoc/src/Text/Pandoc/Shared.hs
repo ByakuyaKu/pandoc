@@ -46,17 +46,11 @@ module Text.Pandoc.Shared (
                      escapeURI,
                      unescapeURI,
                      tabFilter,
-                     -- * Prettyprinting
-                     wrapped,
-                     wrapIfNeeded,
-                     wrappedTeX,
-                     wrapTeXIfNeeded,
-                     BlockWrapper (..),
-                     wrappedBlocksToDoc,
-                     hang',
                      -- * Pandoc block and inline list processing
                      orderedListMarkers,
                      normalizeSpaces,
+                     normalize,
+                     stringify,
                      compactify,
                      Element (..),
                      hierarchicalize,
@@ -65,19 +59,20 @@ module Text.Pandoc.Shared (
                      headerShift,
                      -- * Writer options
                      HTMLMathMethod (..),
+                     CiteMethod (..),
                      ObfuscationMethod (..),
                      HTMLSlideVariant (..),
                      WriterOptions (..),
                      defaultWriterOptions,
                      -- * File handling
                      inDirectory,
-                     readDataFile
+                     findDataFile,
+                     readDataFile,
                     ) where
 
 import Text.Pandoc.Definition
+import Text.Pandoc.Generic
 import qualified Text.Pandoc.UTF8 as UTF8 (readFile)
-import Text.PrettyPrint.HughesPJ ( Doc, fsep, ($$), (<>), empty, isEmpty, text, nest )
-import qualified Text.PrettyPrint.HughesPJ as PP
 import Data.Char ( toLower, isLower, isUpper, isAlpha, isAscii,
                    isLetter, isDigit )
 import Data.List ( find, isPrefixOf, intercalate )
@@ -94,12 +89,12 @@ import Paths_pandoc (getDataFileName)
 --
 
 -- | Split list by groups of one or more sep.
-splitBy :: (Eq a) => a -> [a] -> [[a]]
+splitBy :: (a -> Bool) -> [a] -> [[a]]
 splitBy _ [] = []
-splitBy sep lst = 
-  let (first, rest) = break (== sep) lst
-      rest'         = dropWhile (== sep) rest
-  in  first:(splitBy sep rest')
+splitBy isSep lst =
+  let (first, rest) = break isSep lst
+      rest'         = dropWhile isSep rest
+  in  first:(splitBy isSep rest')
 
 -- | Split list into chunks divided at specified indices.
 splitByIndices :: [Int] -> [a] -> [[a]]
@@ -218,83 +213,6 @@ tabFilter tabStop =
   in  go tabStop
 
 --
--- Prettyprinting
---
-
--- | Wrap inlines to line length.
-wrapped :: Monad m => ([Inline] -> m Doc) -> [Inline] -> m Doc
-wrapped listWriter sect = (mapM listWriter $ splitBy Space sect) >>= 
-                          return . fsep
-
--- | Wrap inlines if the text wrap option is selected.
-wrapIfNeeded :: Monad m => WriterOptions -> ([Inline] -> m Doc) -> 
-                           [Inline] -> m Doc
-wrapIfNeeded opts = if writerWrapText opts
-                       then wrapped 
-                       else ($)
-
--- auxiliary function for wrappedTeX
-isNote :: Inline -> Bool
-isNote (Note _) = True
-isNote _ = False
-
--- | Wrap inlines to line length, treating footnotes in a way that
--- makes sense in LaTeX and ConTeXt.
-wrappedTeX :: Monad m 
-           => Bool
-           -> ([Inline] -> m Doc) 
-           -> [Inline] 
-           -> m Doc
-wrappedTeX includePercent listWriter sect = do
-  let (firstpart, rest) = break isNote sect
-  firstpartWrapped <- wrapped listWriter firstpart
-  if null rest
-     then return firstpartWrapped
-     else do let (note:rest') = rest
-             let (rest1, rest2) = break (== Space) rest'
-             -- rest1 is whatever comes between the note and a Space.
-             -- if the note is followed directly by a Space, rest1 is null.
-             -- rest1 is printed after the note but before the line break,
-             -- to avoid spurious blank space the note and immediately
-             -- following punctuation.
-             rest1Out <- if null rest1
-                            then return empty
-                            else listWriter rest1
-             rest2Wrapped <- if null rest2
-                                then return empty
-                                else wrappedTeX includePercent listWriter (tail rest2)
-             noteText <- listWriter [note]
-             return $ (firstpartWrapped <> if includePercent then PP.char '%' else empty) $$ 
-                      (noteText <> rest1Out) $$
-                      rest2Wrapped
-
--- | Wrap inlines if the text wrap option is selected, specialized 
--- for LaTeX and ConTeXt.
-wrapTeXIfNeeded :: Monad m 
-                => WriterOptions
-                -> Bool
-                -> ([Inline] -> m Doc) 
-                -> [Inline] 
-                -> m Doc
-wrapTeXIfNeeded opts includePercent = if writerWrapText opts
-                                         then wrappedTeX includePercent
-                                         else ($)
-
--- | Indicates whether block should be surrounded by blank lines (@Pad@) or not (@Reg@).
-data BlockWrapper = Pad Doc | Reg Doc
-
--- | Converts a list of wrapped blocks to a Doc, with appropriate spaces around blocks.
-wrappedBlocksToDoc :: [BlockWrapper] -> Doc
-wrappedBlocksToDoc = foldr addBlock empty
-     where addBlock (Pad d) accum | isEmpty accum = d
-           addBlock (Pad d) accum = d $$ text "" $$ accum
-           addBlock (Reg d) accum = d $$ accum
-
--- | A version of hang that works like the version in pretty-1.0.0.0
-hang' :: Doc -> Int -> Doc -> Doc
-hang' d1 n d2 = d1 $$ (nest n d2)
-
---
 -- Pandoc block and inline list processing
 --
 
@@ -324,20 +242,104 @@ orderedListMarkers (start, numstyle, numdelim) =
 -- @Space@ elements, collapse double @Space@s into singles, and
 -- remove empty Str elements.
 normalizeSpaces :: [Inline] -> [Inline]
-normalizeSpaces [] = []
-normalizeSpaces list = 
-    let removeDoubles [] = []
-        removeDoubles (Space:Space:rest) = removeDoubles (Space:rest)
-        removeDoubles (Space:(Str ""):Space:rest) = removeDoubles (Space:rest)
-        removeDoubles ((Str ""):rest) = removeDoubles rest 
-        removeDoubles (x:rest) = x:(removeDoubles rest)
-        removeLeading (Space:xs) = removeLeading xs
-        removeLeading x = x
-        removeTrailing [] = []
-        removeTrailing lst = if (last lst == Space)
-                                then init lst
-                                else lst
-    in  removeLeading $ removeTrailing $ removeDoubles list
+normalizeSpaces = cleanup . dropWhile isSpaceOrEmpty
+ where  cleanup [] = []
+        cleanup (Space:rest) = let rest' = dropWhile isSpaceOrEmpty rest
+                               in  case rest' of
+                                   []            -> []
+                                   _             -> Space : cleanup rest'
+        cleanup ((Str ""):rest) = cleanup rest
+        cleanup (x:rest) = x : cleanup rest
+
+isSpaceOrEmpty :: Inline -> Bool
+isSpaceOrEmpty Space = True
+isSpaceOrEmpty (Str "") = True
+isSpaceOrEmpty _ = False
+
+-- | Normalize @Pandoc@ document, consolidating doubled 'Space's,
+-- combining adjacent 'Str's and 'Emph's, remove 'Null's and
+-- empty elements, etc.
+normalize :: (Eq a, Data a) => a -> a
+normalize = topDown removeEmptyBlocks .
+            topDown consolidateInlines .
+            bottomUp (removeEmptyInlines . removeTrailingInlineSpaces)
+
+removeEmptyBlocks :: [Block] -> [Block]
+removeEmptyBlocks (Null : xs) = removeEmptyBlocks xs
+removeEmptyBlocks (BulletList [] : xs) = removeEmptyBlocks xs
+removeEmptyBlocks (OrderedList _ [] : xs) = removeEmptyBlocks xs
+removeEmptyBlocks (DefinitionList [] : xs) = removeEmptyBlocks xs
+removeEmptyBlocks (RawBlock _ [] : xs) = removeEmptyBlocks xs
+removeEmptyBlocks (x:xs) = x : removeEmptyBlocks xs
+removeEmptyBlocks [] = []
+
+removeEmptyInlines :: [Inline] -> [Inline]
+removeEmptyInlines (Emph [] : zs) = removeEmptyInlines zs
+removeEmptyInlines (Strong [] : zs) = removeEmptyInlines zs
+removeEmptyInlines (Subscript [] : zs) = removeEmptyInlines zs
+removeEmptyInlines (Superscript [] : zs) = removeEmptyInlines zs
+removeEmptyInlines (SmallCaps [] : zs) = removeEmptyInlines zs
+removeEmptyInlines (Strikeout [] : zs) = removeEmptyInlines zs
+removeEmptyInlines (RawInline _ [] : zs) = removeEmptyInlines zs
+removeEmptyInlines (Code _ [] : zs) = removeEmptyInlines zs
+removeEmptyInlines (Str "" : zs) = removeEmptyInlines zs
+removeEmptyInlines (x : xs) = x : removeEmptyInlines xs
+removeEmptyInlines [] = []
+
+removeTrailingInlineSpaces :: [Inline] -> [Inline]
+removeTrailingInlineSpaces = reverse . removeLeadingInlineSpaces . reverse
+
+removeLeadingInlineSpaces :: [Inline] -> [Inline]
+removeLeadingInlineSpaces = dropWhile isSpaceOrEmpty
+
+consolidateInlines :: [Inline] -> [Inline]
+consolidateInlines (Str x : ys) =
+  case concat (x : map fromStr strs) of
+        ""     -> consolidateInlines rest
+        n      -> Str n : consolidateInlines rest
+   where
+     (strs, rest)  = span isStr ys
+     isStr (Str _) = True
+     isStr _       = False
+     fromStr (Str z) = z
+     fromStr _       = error "consolidateInlines - fromStr - not a Str"
+consolidateInlines (Space : ys) = Space : rest
+   where isSpace Space = True
+         isSpace _     = False
+         rest          = consolidateInlines $ dropWhile isSpace ys
+consolidateInlines (Emph xs : Emph ys : zs) = consolidateInlines $
+  Emph (xs ++ ys) : zs
+consolidateInlines (Strong xs : Strong ys : zs) = consolidateInlines $
+  Strong (xs ++ ys) : zs
+consolidateInlines (Subscript xs : Subscript ys : zs) = consolidateInlines $
+  Subscript (xs ++ ys) : zs
+consolidateInlines (Superscript xs : Superscript ys : zs) = consolidateInlines $
+  Superscript (xs ++ ys) : zs
+consolidateInlines (SmallCaps xs : SmallCaps ys : zs) = consolidateInlines $
+  SmallCaps (xs ++ ys) : zs
+consolidateInlines (Strikeout xs : Strikeout ys : zs) = consolidateInlines $
+  Strikeout (xs ++ ys) : zs
+consolidateInlines (RawInline f x : RawInline f' y : zs) | f == f' =
+  consolidateInlines $ RawInline f (x ++ y) : zs
+consolidateInlines (Code a1 x : Code a2 y : zs) | a1 == a2 =
+  consolidateInlines $ Code a1 (x ++ y) : zs
+consolidateInlines (x : xs) = x : consolidateInlines xs
+consolidateInlines [] = []
+
+-- | Convert list of inlines to a string with formatting removed.
+stringify :: [Inline] -> String
+stringify = queryWith go
+  where go :: Inline -> [Char]
+        go Space = " "
+        go (Str x) = x
+        go (Code _ x) = x
+        go (Math _ x) = x
+        go EmDash = "--"
+        go EnDash = "-"
+        go Apostrophe = "'"
+        go Ellipses = "..."
+        go LineBreak = " "
+        go _ = ""
 
 -- | Change final list item from @Para@ to @Plain@ if the list contains
 -- no other @Para@ blocks.
@@ -370,32 +372,12 @@ data Element = Blk Block
 -- letters, digits, and the characters _-.
 inlineListToIdentifier :: [Inline] -> String
 inlineListToIdentifier =
-  dropWhile (not . isAlpha) . intercalate "-" . words . map toLower .
-  filter (\c -> isLetter c || isDigit c || c `elem` "_-. ") .
-  concatMap extractText
-    where extractText x = case x of
-              Str s           -> s
-              Emph lst        -> concatMap extractText lst
-              Strikeout lst   -> concatMap extractText lst
-              Superscript lst -> concatMap extractText lst
-              SmallCaps   lst -> concatMap extractText lst
-              Subscript lst   -> concatMap extractText lst
-              Strong lst      -> concatMap extractText lst
-              Quoted _ lst    -> concatMap extractText lst
-              Cite   _ lst    -> concatMap extractText lst
-              Code s          -> s
-              Space           -> " "
-              EmDash          -> "---"
-              EnDash          -> "--"
-              Apostrophe      -> ""
-              Ellipses        -> "..."
-              LineBreak       -> " "
-              Math _ s        -> s
-              TeX _           -> ""
-              HtmlInline _    -> ""
-              Link lst _      -> concatMap extractText lst
-              Image lst _     -> concatMap extractText lst
-              Note _          -> ""
+  dropWhile (not . isAlpha) . intercalate "-" . words .
+    map (nbspToSp . toLower) .
+    filter (\c -> isLetter c || isDigit c || c `elem` "_-. ") .
+    stringify
+ where nbspToSp '\160'     =  ' '
+       nbspToSp x          =  x
 
 -- | Convert list of Pandoc blocks into (hierarchical) list of Elements
 hierarchicalize :: [Block] -> [Element]
@@ -444,7 +426,7 @@ isHeaderBlock _ = False
 
 -- | Shift header levels up or down.
 headerShift :: Int -> Pandoc -> Pandoc
-headerShift n = processWith shift
+headerShift n = bottomUp shift
   where shift :: Block -> Block
         shift (Header level inner) = Header (level + n) inner
         shift x                    = x
@@ -459,7 +441,13 @@ data HTMLMathMethod = PlainMath
                     | GladTeX
                     | WebTeX String               -- url of TeX->image script.
                     | MathML (Maybe String)       -- url of MathMLinHTML.js
+                    | MathJax String              -- url of MathJax.js
                     deriving (Show, Read, Eq)
+
+data CiteMethod = Citeproc                        -- use citeproc to render them
+                  | Natbib                        -- output natbib cite commands
+                  | Biblatex                      -- output biblatex cite commands
+                deriving (Show, Read, Eq)
 
 -- | Methods for obfuscating email addresses in HTML.
 data ObfuscationMethod = NoObfuscation
@@ -491,13 +479,21 @@ data WriterOptions = WriterOptions
   , writerStrictMarkdown   :: Bool   -- ^ Use strict markdown syntax
   , writerReferenceLinks   :: Bool   -- ^ Use reference links in writing markdown, rst
   , writerWrapText         :: Bool   -- ^ Wrap text to line length
+  , writerColumns          :: Int    -- ^ Characters in a line (for text wrapping)
   , writerLiterateHaskell  :: Bool   -- ^ Write as literate haskell
   , writerEmailObfuscation :: ObfuscationMethod -- ^ How to obfuscate emails
   , writerIdentifierPrefix :: String -- ^ Prefix for section & note ids in HTML
   , writerSourceDirectory  :: FilePath -- ^ Directory path of 1st source file
   , writerUserDataDir      :: Maybe FilePath -- ^ Path of user data directory
+  , writerCiteMethod       :: CiteMethod -- ^ How to print cites
+  , writerBiblioFiles      :: [FilePath] -- ^ Biblio files to use for citations
+  , writerHtml5            :: Bool       -- ^ Produce HTML5
+  , writerChapters         :: Bool       -- ^ Use "chapter" for top-level sects
+  , writerListings         :: Bool       -- ^ Use listings package for code
+  , writerAscii            :: Bool       -- ^ Avoid non-ascii characters
   } deriving Show
 
+{-# DEPRECATED writerXeTeX "writerXeTeX no longer does anything" #-}
 -- | Default writer options.
 defaultWriterOptions :: WriterOptions
 defaultWriterOptions = 
@@ -513,15 +509,22 @@ defaultWriterOptions =
                 , writerHTMLMathMethod   = PlainMath
                 , writerIgnoreNotes      = False
                 , writerNumberSections   = False
-                , writerSectionDivs      = True
+                , writerSectionDivs      = False
                 , writerStrictMarkdown   = False
                 , writerReferenceLinks   = False
                 , writerWrapText         = True
+                , writerColumns          = 72
                 , writerLiterateHaskell  = False
                 , writerEmailObfuscation = JavascriptObfuscation
                 , writerIdentifierPrefix = ""
                 , writerSourceDirectory  = "."
                 , writerUserDataDir      = Nothing
+                , writerCiteMethod       = Citeproc
+                , writerBiblioFiles      = []
+                , writerHtml5            = False
+                , writerChapters         = False
+                , writerListings         = False
+                , writerAscii            = False
                 }
 
 --
@@ -537,11 +540,17 @@ inDirectory path action = do
   setCurrentDirectory oldDir
   return result
 
+-- | Get file path for data file, either from specified user data directory,
+-- or, if not found there, from Cabal data directory.
+findDataFile :: Maybe FilePath -> FilePath -> IO FilePath
+findDataFile Nothing f = getDataFileName f
+findDataFile (Just u) f = do
+  ex <- doesFileExist (u </> f)
+  if ex
+     then return (u </> f)
+     else getDataFileName f
+
 -- | Read file from specified user data directory or, if not found there, from
 -- Cabal data directory.
 readDataFile :: Maybe FilePath -> FilePath -> IO String
-readDataFile userDir fname =
-  case userDir of
-       Nothing  -> getDataFileName fname >>= UTF8.readFile
-       Just u   -> catch (UTF8.readFile $ u </> fname)
-                   (\_ -> getDataFileName fname >>= UTF8.readFile)
+readDataFile userDir fname = findDataFile userDir fname >>= UTF8.readFile

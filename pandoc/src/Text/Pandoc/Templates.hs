@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE TypeSynonymInstances, FlexibleInstances #-}
 {-
 Copyright (C) 2009-2010 John MacFarlane <jgm@berkeley.edu>
 
@@ -72,7 +72,6 @@ import Text.ParserCombinators.Parsec
 import Control.Monad (liftM, when, forM)
 import System.FilePath
 import Data.List (intercalate, intersperse)
-import Text.PrettyPrint (text, Doc)
 import Text.XHtml (primHtml, Html)
 import Data.ByteString.Lazy.UTF8 (ByteString, fromString)
 import Text.Pandoc.Shared (readDataFile)
@@ -84,9 +83,10 @@ getDefaultTemplate :: (Maybe FilePath) -- ^ User data directory to search first
                    -> IO (Either E.IOException String)
 getDefaultTemplate _ "native" = return $ Right ""
 getDefaultTemplate user "odt" = getDefaultTemplate user "opendocument"
+getDefaultTemplate user "epub" = getDefaultTemplate user "html"
 getDefaultTemplate user writer = do
   let format = takeWhile (/='+') writer  -- strip off "+lhs" if present
-  let fname = "templates" </> format  <.> "template"
+  let fname = "templates" </> "default" <.> format
   E.try $ readDataFile user fname
 
 data TemplateState = TemplateState Int [(String,String)]
@@ -111,9 +111,6 @@ instance TemplateTarget ByteString where
 
 instance TemplateTarget Html where
   toTarget = primHtml
-
-instance TemplateTarget Doc where
-  toTarget = text
 
 -- | Renders a template 
 renderTemplate :: TemplateTarget a
