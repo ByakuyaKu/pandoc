@@ -6,7 +6,7 @@
 %define pkg_libdir %_libdir/%hsc_name-%hsc_version/lib/%h_pkg_name-%version
 
 Name: pandoc
-Version: 1.6.0.1
+Version: 1.8.2.1
 Release: alt1
 Summary: Markup conversion tool for markdown
 
@@ -17,7 +17,7 @@ Packager: Vitaly Kuznetsov <vitty@altlinux.ru>
 
 Source: http://hackage.haskell.org/packages/archive/%name/%version/%name-%version.tar.gz
 
-BuildRequires: ghc, ghc-doc, ghc-prof, ghc-http, ghc-network, ghc-mtl, ghc-parsec, ghc-syb, ghc-utf8-string, ghc-xml, ghc-texmath, ghc-xhtml, ghc-zip-archive, ghc-texmath
+BuildRequires: ghc, ghc-doc, ghc-prof, ghc-http, ghc-network, ghc-mtl, ghc-parsec, ghc-syb, ghc-utf8-string, ghc-xml, ghc-texmath, ghc-xhtml, ghc-zip-archive, ghc-texmath, ghc-tagsoup, ghc-dlist, ghc-citeproc-hs, ghc-json, ghc-base64-bytestring
 BuildRequires(pre): rpm-build-haskell
 
 %description
@@ -44,7 +44,11 @@ runghc Setup copy --destdir=%buildroot
 %_datadir/%name-%version
 %_libdir/%name-%version
 %attr(644,root,root) %_man1dir/*
+%attr(644,root,root) %_man5dir/*
 
 %changelog
+* Wed Aug 03 2011 Vitaly Kuznetsov <vitty@altlinux.ru> 1.8.2.1-alt1
+- 1.8.2.1
+
 * Wed Mar 09 2011 Vitaly Kuznetsov <vitty@altlinux.ru> 1.6.0.1-alt1
 - initial from Fedora
