@@ -68,7 +68,8 @@ import Control.Monad ( guard, liftM )
 readTextile :: ParserState -- ^ Parser state, including options for parser
              -> String      -- ^ String to parse (assuming @'\n'@ line endings)
              -> Pandoc
-readTextile state s = (readWith parseTextile) state (s ++ "\n\n")
+readTextile state s =
+  (readWith parseTextile) state{ stateOldDashes = True } (s ++ "\n\n")
 
 
 --
@@ -436,6 +437,8 @@ str = do
               next <- lookAhead letter
               guard $ isLetter (last xs) || isLetter next
               return $ xs ++ "-"
+  pos <- getPosition
+  updateState $ \s -> s{ stateLastStrPos = Just pos }
   return $ Str result
 
 -- | Textile allows HTML span infos, we discard them

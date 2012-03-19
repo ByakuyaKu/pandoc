@@ -128,6 +128,7 @@ block = choice [ codeBlock
                , fieldList
                , imageBlock
                , customCodeBlock
+               , mathBlock
                , unknownDirective
                , header
                , hrule
@@ -360,6 +361,33 @@ customCodeBlock = try $ do
   result <- indentedBlock
   return $ CodeBlock ("", ["sourceCode", language], []) $ stripTrailingNewlines result
 
+-- | The 'math' directive (from Sphinx) for display math.
+mathBlock :: GenParser Char st Block
+mathBlock = try $ do
+  string ".. math::"
+  mathBlockMultiline <|> mathBlockOneLine
+
+mathBlockOneLine :: GenParser Char st Block
+mathBlockOneLine = try $ do
+  result <- manyTill anyChar newline
+  blanklines
+  return $ Para [Math DisplayMath $ removeLeadingTrailingSpace result]
+
+mathBlockMultiline :: GenParser Char st Block
+mathBlockMultiline = try $ do
+  blanklines
+  result <- indentedBlock
+  -- a single block can contain multiple equations, which need to go
+  -- in separate Pandoc math elements
+  let lns = map removeLeadingTrailingSpace $ lines result
+  -- drop :label, :nowrap, etc.
+  let startsWithColon (':':_) = True
+      startsWithColon _       = False
+  let lns' = dropWhile startsWithColon lns
+  let eqs = map (removeLeadingTrailingSpace . unlines)
+            $ filter (not . null) $ splitBy null lns'
+  return $ Para $ map (Math DisplayMath) eqs
+
 lhsCodeBlock :: GenParser Char ParserState Block
 lhsCodeBlock = try $ do
   failUnlessLHS
@@ -526,8 +554,8 @@ noteBlock = try $ do
   string ".."
   spaceChar >> skipMany spaceChar
   ref <- noteMarker
-  spaceChar >> skipMany spaceChar
-  first <- anyLine
+  first <- (spaceChar >> skipMany spaceChar >> anyLine)
+        <|> (newline >> return "")
   blanks <- option "" blanklines
   rest <- option "" indentedBlock
   endPos <- getPosition
@@ -736,6 +764,7 @@ inline = choice [ whitespace
                 , image
                 , superscript
                 , subscript
+                , math
                 , note
                 , smartPunctuation inline
                 , hyphens
@@ -750,7 +779,8 @@ hyphens = do
   return $ Str result
 
 escapedChar :: GenParser Char st Inline
-escapedChar = escaped anyChar
+escapedChar = do c <- escaped anyChar
+                 return $ Str [c]
 
 symbol :: GenParser Char ParserState Inline
 symbol = do 
@@ -773,24 +803,31 @@ strong :: GenParser Char ParserState Inline
 strong = enclosed (string "**") (try $ string "**") inline >>= 
          return . Strong . normalizeSpaces
 
-interpreted :: [Char] -> GenParser Char st [Inline]
+interpreted :: [Char] -> GenParser Char st [Char]
 interpreted role = try $ do
   optional $ try $ string "\\ "
   result <- enclosed (string $ ":" ++ role ++ ":`") (char '`') anyChar
   try (string "\\ ") <|> lookAhead (count 1 $ oneOf " \t\n") <|> (eof >> return "")
-  return [Str result]
+  return result
 
 superscript :: GenParser Char ParserState Inline
-superscript = interpreted "sup" >>= (return . Superscript)
+superscript = interpreted "sup" >>= \x -> return (Superscript [Str x])
 
 subscript :: GenParser Char ParserState Inline
-subscript = interpreted "sub" >>= (return . Subscript)
+subscript = interpreted "sub" >>= \x -> return (Subscript [Str x])
+
+math :: GenParser Char ParserState Inline
+math = interpreted "math" >>= \x -> return (Math InlineMath x)
 
 whitespace :: GenParser Char ParserState Inline
 whitespace = many1 spaceChar >> return Space <?> "whitespace"
 
 str :: GenParser Char ParserState Inline
-str = many1 (noneOf (specialChars ++ "\t\n ")) >>= return . Str
+str = do
+  result <- many1 (noneOf (specialChars ++ "\t\n "))
+  pos <- getPosition
+  updateState $ \s -> s{ stateLastStrPos = Just pos }
+  return $ Str result
 
 -- an endline character that can be treated as a space, not a structural break
 endline :: GenParser Char ParserState Inline

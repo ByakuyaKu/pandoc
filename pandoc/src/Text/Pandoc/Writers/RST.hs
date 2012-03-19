@@ -157,7 +157,7 @@ blockToRST (Header level inlines) = do
   contents <- inlineListToRST inlines
   let headerChar = if level > 5 then ' ' else "=-~^'" !! (level - 1)
   let border = text $ replicate (offset contents) headerChar
-  return $ contents $$ border $$ blankline
+  return $ nowrap $ contents $$ border $$ blankline
 blockToRST (CodeBlock (_,classes,_) str) = do
   opts <- stOptions <$> get
   let tabstop = writerTabStop opts
@@ -176,7 +176,7 @@ blockToRST (Table caption _ widths headers rows) =  do
                      else blankline <> text "Table: " <> caption'
   headers' <- mapM blockListToRST headers
   rawRows <- mapM (mapM blockListToRST) rows
-  let isSimple = all (==0) widths && all (all (\bs -> length bs == 1)) rows
+  let isSimple = all (==0) widths && all (all (\bs -> length bs <= 1)) rows
   let numChars = maximum . map offset
   opts <- get >>= return . stOptions
   let widthsInChars =
@@ -281,26 +281,24 @@ inlineToRST (Quoted DoubleQuote lst) = do
   return $ "“" <> contents <> "”"
 inlineToRST (Cite _  lst) =
   inlineListToRST lst
-inlineToRST EmDash = return $ char '\8212'
-inlineToRST EnDash = return $ char '\8211'
-inlineToRST Apostrophe = return $ char '\8217'
-inlineToRST Ellipses = return $ char '\8230'
 inlineToRST (Code _ str) = return $ "``" <> text str <> "``"
 inlineToRST (Str str) = return $ text $ escapeString str
 inlineToRST (Math t str) = do
   modify $ \st -> st{ stHasMath = True }
   return $ if t == InlineMath
-              then ":math:`$" <> text str <> "$`"
-              else ":math:`$$" <> text str <> "$$`"
+              then ":math:`" <> text str <> "`" <> beforeNonBlank "\\ "
+              else if '\n' `elem` str
+                   then blankline $$ ".. math::" $$
+                        blankline $$ nest 3 (text str) $$ blankline
+                   else blankline $$ (".. math:: " <> text str) $$ blankline
 inlineToRST (RawInline _ _) = return empty
 inlineToRST (LineBreak) = return cr -- there's no line break in RST
 inlineToRST Space = return space
 inlineToRST (Link [Code _ str] (src, _)) | src == str ||
                                            src == "mailto:" ++ str = do
   let srcSuffix = if isPrefixOf "mailto:" src then drop 7 src else src
-  return $ text $ unescapeURI srcSuffix
-inlineToRST (Link txt (src', tit)) = do
-  let src = unescapeURI src'
+  return $ text srcSuffix
+inlineToRST (Link txt (src, tit)) = do
   useReferenceLinks <- get >>= return . writerReferenceLinks . stOptions
   linktext <- inlineListToRST $ normalizeSpaces txt
   if useReferenceLinks
@@ -311,8 +309,7 @@ inlineToRST (Link txt (src', tit)) = do
             modify $ \st -> st { stLinks = refs' }
             return $ "`" <> linktext <> "`_"
     else return $ "`" <> linktext <> " <" <> text src <> ">`_"
-inlineToRST (Image alternate (source', tit)) = do
-  let source = unescapeURI source'
+inlineToRST (Image alternate (source, tit)) = do
   pics <- get >>= return . stImages
   let labelsUsed = map fst pics 
   let txt = if null alternate || alternate == [Str ""] ||

@@ -1,5 +1,5 @@
 .\"t
-.TH PANDOC_MARKDOWN 5 "July 30, 2011" "Pandoc"
+.TH PANDOC_MARKDOWN 5 "January 27, 2012" "Pandoc"
 .SH NAME
 pandoc_markdown - markdown syntax for pandoc(1)
 .SH DESCRIPTION
@@ -39,7 +39,7 @@ line.
 Newlines are treated as spaces, so you can reflow your paragraphs as you
 like.
 If you need a hard line break, put two or more spaces at the end of a
-line, or or type a backslash followed by a newline.
+line, or type a backslash followed by a newline.
 .SH HEADERS
 .PP
 There are two kinds of headers, Setext and atx.
@@ -98,12 +98,12 @@ I\ like\ several\ of\ their\ flavors\ of\ ice\ cream:
 #22,\ for\ example,\ and\ #5.
 \f[]
 .fi
-.SS Header identifiers in HTML
+.SS Header identifiers in HTML, LaTeX, and ConTeXt
 .PP
 \f[I]Pandoc extension\f[].
 .PP
-Each header element in pandoc\[aq]s HTML output is given a unique
-identifier.
+Each header element in pandoc\[aq]s HTML and ConTeXt output is given a
+unique identifier.
 This identifier is based on the text of the header.
 To derive the identifier from the header text,
 .IP \[bu] 2
@@ -180,7 +180,7 @@ See\ the\ section\ on
 .fi
 .PP
 Note, however, that this method of providing links to sections works
-only in HTML.
+only in HTML, LaTeX, and ConTeXt formats.
 .PP
 If the \f[C]--section-divs\f[] option is specified, then each section
 will be wrapped in a \f[C]div\f[] (or a \f[C]section\f[], if
@@ -275,9 +275,10 @@ Note: blank lines in the verbatim text need not begin with four spaces.
 .PP
 In addition to standard indented code blocks, Pandoc supports
 \f[I]delimited\f[] code blocks.
-These begin with a row of three or more tildes (\f[C]~\f[]) and end with
-a row of tildes that must be at least as long as the starting row.
-Everything between the tilde-lines is treated as code.
+These begin with a row of three or more tildes (\f[C]~\f[]) or backticks
+(\f[C]`\f[]) and end with a row of tildes or backticks that must be at
+least as long as the starting row.
+Everything between these lines is treated as code.
 No indentation is necessary:
 .IP
 .nf
@@ -293,8 +294,8 @@ if\ (a\ >\ 3)\ {
 Like regular code blocks, delimited code blocks must be separated from
 surrounding text by blank lines.
 .PP
-If the code itself contains a row of tildes, just use a longer row of
-tildes at the start and end:
+If the code itself contains a row of tildes or backticks, just use a
+longer row of tildes or backticks at the start and end:
 .IP
 .nf
 \f[C]
@@ -306,38 +307,63 @@ code\ including\ tildes
 \f[]
 .fi
 .PP
-Optionally, you may specify the language of the code block using this
+Optionally, you may attach attributes to the code block using this
 syntax:
 .IP
 .nf
 \f[C]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\ {.haskell\ .numberLines}
+~~~~\ {#mycode\ .haskell\ .numberLines\ startFrom="100"}
 qsort\ []\ \ \ \ \ =\ []
 qsort\ (x:xs)\ =\ qsort\ (filter\ (<\ x)\ xs)\ ++\ [x]\ ++
-\ \ \ \ \ \ \ \ \ \ \ \ \ \ \ qsort\ (filter\ (>=\ x)\ xs)\ 
+\ \ \ \ \ \ \ \ \ \ \ \ \ \ \ qsort\ (filter\ (>=\ x)\ xs)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 \f[]
 .fi
 .PP
+Here \f[C]mycode\f[] is an identifier, \f[C]haskell\f[] and
+\f[C]numberLines\f[] are classes, and \f[C]startFrom\f[] is an attribute
+with value \f[C]100\f[].
 Some output formats can use this information to do syntax highlighting.
-Currently, the only output format that uses this information is HTML.
-.PP
-If pandoc has been compiled with syntax highlighting support, then the
-code block above will appear highlighted, with numbered lines.
+Currently, the only output formats that uses this information are HTML
+and LaTeX.
+If highlighting is supported for your output format and language, then
+the code block above will appear highlighted, with numbered lines.
 (To see which languages are supported, do \f[C]pandoc\ --version\f[].)
-.PP
-If pandoc has not been compiled with syntax highlighting support, the
-code block above will appear as follows:
+ Otherwise, the code block above will appear as follows:
 .IP
 .nf
 \f[C]
-<pre\ class="haskell">
+<pre\ id="mycode"\ class="haskell\ numberLines"\ startFrom="100">
 \ \ <code>
 \ \ ...
 \ \ </code>
 </pre>
 \f[]
 .fi
+.PP
+A shortcut form can also be used for specifying the language of the code
+block:
+.IP
+.nf
+\f[C]
+```haskell
+qsort\ []\ =\ []
+```
+\f[]
+.fi
+.PP
+This is equivalent to:
+.IP
+.nf
+\f[C]
+```\ {.haskell}
+qsort\ []\ =\ []
+```
+\f[]
+.fi
+.PP
+To prevent all highlighting, use the \f[C]--no-highlight\f[] flag.
+To set the highlighting style, use \f[C]--highlight-style\f[].
 .SH LISTS
 .SS Bullet lists
 .PP
@@ -567,6 +593,8 @@ Each term must fit on one line, which may optionally be followed by a
 blank line, and must be followed by one or more definitions.
 A definition begins with a colon or tilde, which may be indented one or
 two spaces.
+The body of the definition (including the first line, aside from the
+colon or tilde) should be indented four spaces.
 A term may have multiple definitions, and each definition may consist of
 one or more block elements (paragraph, code block, list, etc.)
 , each indented four spaces or one tab stop.
@@ -698,9 +726,9 @@ one big list:
 
 <!--\ -->
 
-a.\ \ uno
-b.\ \ dos
-c.\ \ tres
+1.\ \ uno
+2.\ \ dos
+3.\ \ tres
 \f[]
 .fi
 .SH HORIZONTAL RULES
@@ -1034,10 +1062,12 @@ indicating hard line breaks using two trailing spaces on a line.
 Backslash escapes do not work in verbatim contexts.
 .SH SMART PUNCTUATION
 .PP
+\f[I]Pandoc extension\f[].
+.PP
 If the \f[C]--smart\f[] option is specified, pandoc will produce
 typographically correct output, converting straight quotes to curly
-quotes, \f[C]---\f[] and \f[C]--\f[] to Em-dashes, and \f[C]...\f[] to
-ellipses.
+quotes, \f[C]---\f[] to em-dashes, \f[C]--\f[] to en-dashes, and
+\f[C]\&...\f[] to ellipses.
 Nonbreaking spaces are inserted after certain abbreviations, such as
 "Mr."
 .PP
@@ -1178,6 +1208,11 @@ described here.
 .RS
 .RE
 .TP
+.B AsciiDoc
+It will be rendered as \f[C]latexmath:[...]\f[].
+.RS
+.RE
+.TP
 .B Texinfo
 It will be rendered inside a \f[C]\@math\f[] command.
 .RS
@@ -1198,19 +1233,31 @@ It will be rendered inside \f[C]<span\ class="math">\f[] tags.
 .RS
 .RE
 .TP
-.B RTF, Docbook, OpenDocument, ODT
+.B RTF, OpenDocument, ODT
 It will be rendered, if possible, using unicode characters, and will
 otherwise appear verbatim.
 .RS
 .RE
 .TP
-.B HTML, Slidy, S5, EPUB
+.B Docbook
+If the \f[C]--mathml\f[] flag is used, it will be rendered using mathml
+in an \f[C]inlineequation\f[] or \f[C]informalequation\f[] tag.
+Otherwise it will be rendered, if possible, using unicode characters.
+.RS
+.RE
+.TP
+.B Docx
+It will be rendered using OMML math markup.
+.RS
+.RE
+.TP
+.B HTML, Slidy, DZSlides, S5, EPUB
 The way math is rendered in HTML will depend on the command-line options
 selected:
 .RS
 .IP "1." 3
 The default is to render TeX math as far as possible using unicode
-characters, as with RTF, Docbook, and OpenDocument output.
+characters, as with RTF, DocBook, and OpenDocument output.
 Formulas are put inside a \f[C]span\f[] with \f[C]class="math"\f[], so
 that they may be styled differently from the surrounding text if needed.
 .IP "2." 3
@@ -1260,12 +1307,12 @@ If no URL is specified, the Google Chart API will be used
 .RE
 .SH RAW HTML
 .PP
-Markdown allows you to insert raw HTML anywhere in a document (except
-verbatim contexts, where \f[C]<\f[], \f[C]>\f[], and \f[C]&\f[] are
-interpreted literally).
+Markdown allows you to insert raw HTML (or DocBook) anywhere in a
+document (except verbatim contexts, where \f[C]<\f[], \f[C]>\f[], and
+\f[C]&\f[] are interpreted literally).
 .PP
-The raw HTML is passed through unchanged in HTML, S5, Slidy, EPUB,
-Markdown, and Textile output, and suppressed in other formats.
+The raw HTML is passed through unchanged in HTML, S5, Slidy, DZSlides,
+EPUB, Markdown, and Textile output, and suppressed in other formats.
 .PP
 \f[I]Pandoc extension\f[].
 .PP
@@ -1575,14 +1622,9 @@ T}@T{
 \&.mods
 T}
 T{
-BibTeX
+BibTeX/BibLaTeX
 T}@T{
 \&.bib
-T}
-T{
-BibLaTeX
-T}@T{
-\&.bbx
 T}
 T{
 RIS

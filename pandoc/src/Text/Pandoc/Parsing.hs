@@ -42,15 +42,16 @@ module Text.Pandoc.Parsing ( (>>~),
                              parseFromString,
                              lineClump,
                              charsInBalanced,
-                             charsInBalanced',
                              romanNumeral,
                              emailAddress,
                              uri,
                              withHorizDisplacement,
+                             withRaw,
                              nullBlock,
                              failIfStrict,
                              failUnlessLHS,
                              escaped,
+                             characterReference,
                              anyOrderedListMarker,
                              orderedListMarker,
                              charRef,
@@ -78,7 +79,6 @@ import Text.Pandoc.Definition
 import Text.Pandoc.Generic
 import qualified Text.Pandoc.UTF8 as UTF8 (putStrLn)
 import Text.ParserCombinators.Parsec
-import Text.Pandoc.CharacterReferences ( characterReference )
 import Data.Char ( toLower, toUpper, ord, isAscii, isAlphaNum, isDigit, isPunctuation )
 import Data.List ( intercalate, transpose )
 import Network.URI ( parseURI, URI (..), isAllowedInURI )
@@ -86,6 +86,7 @@ import Control.Monad ( join, liftM, guard )
 import Text.Pandoc.Shared
 import qualified Data.Map as M
 import Text.TeXMath.Macros (applyMacros, Macro, parseMacroDefinitions)
+import Text.HTML.TagSoup.Entity ( lookupEntity )
 
 -- | Like >>, but returns the operation on the left.
 -- (Suggested by Tillmann Rendel on Haskell-cafe list.)
@@ -174,29 +175,23 @@ lineClump = blanklines
 -- | Parse a string of characters between an open character
 -- and a close character, including text between balanced
 -- pairs of open and close, which must be different. For example,
--- @charsInBalanced '(' ')'@ will parse "(hello (there))"
--- and return "hello (there)".  Stop if a blank line is
--- encountered.
-charsInBalanced :: Char -> Char -> GenParser Char st String
-charsInBalanced open close = try $ do
+-- @charsInBalanced '(' ')' anyChar@ will parse "(hello (there))"
+-- and return "hello (there)".
+charsInBalanced :: Char -> Char -> GenParser Char st Char
+                -> GenParser Char st String
+charsInBalanced open close parser = try $ do
   char open
-  raw <- many $     (many1 (satisfy $ \c ->
-                             c /= open && c /= close && c /= '\n'))
-                <|> (do res <- charsInBalanced open close
-                        return $ [open] ++ res ++ [close])
-                <|> try (string "\n" >>~ notFollowedBy' blanklines)
+  let isDelim c = c == open || c == close
+  raw <- many $  many1 (notFollowedBy (satisfy isDelim) >> parser)
+             <|> (do res <- charsInBalanced open close parser
+                     return $ [open] ++ res ++ [close])
   char close
   return $ concat raw
 
--- | Like @charsInBalanced@, but allow blank lines in the content.
-charsInBalanced' :: Char -> Char -> GenParser Char st String
-charsInBalanced' open close = try $ do
-  char open
-  raw <- many $       (many1 (satisfy $ \c -> c /= open && c /= close))
-                  <|> (do res <- charsInBalanced' open close
-                          return $ [open] ++ res ++ [close])
-  char close
-  return $ concat raw
+-- old charsInBalanced would be:
+-- charsInBalanced open close (noneOf "\n" <|> char '\n' >> notFollowedBy blankline)
+-- old charsInBalanced' would be:
+-- charsInBalanced open close anyChar
 
 -- Auxiliary functions for romanNumeral:
 
@@ -306,6 +301,23 @@ withHorizDisplacement parser = do
   pos2 <- getPosition
   return (result, sourceColumn pos2 - sourceColumn pos1)
 
+-- | Applies a parser and returns the raw string that was parsed,
+-- along with the value produced by the parser.
+withRaw :: GenParser Char st a -> GenParser Char st (a, [Char])
+withRaw parser = do
+  pos1 <- getPosition
+  inp <- getInput
+  result <- parser
+  pos2 <- getPosition
+  let (l1,c1) = (sourceLine pos1, sourceColumn pos1)
+  let (l2,c2) = (sourceLine pos2, sourceColumn pos2)
+  let inplines = take ((l2 - l1) + 1) $ lines inp
+  let raw = case inplines of
+                []   -> error "raw: inplines is null" -- shouldn't happen
+                [l]  -> take (c2 - c1) l
+                ls   -> unlines (init ls) ++ take (c2 - 1) (last ls)
+  return (result, raw)
+
 -- | Parses a character and returns 'Null' (so that the parser can move on
 -- if it gets stuck).
 nullBlock :: GenParser Char st Block
@@ -319,17 +331,21 @@ failIfStrict = do
 
 -- | Fail unless we're in literate haskell mode.
 failUnlessLHS :: GenParser tok ParserState ()
-failUnlessLHS = do
-  state <- getState
-  if stateLiterateHaskell state then return () else fail "Literate haskell feature"
+failUnlessLHS = getState >>= guard . stateLiterateHaskell
 
 -- | Parses backslash, then applies character parser.
 escaped :: GenParser Char st Char  -- ^ Parser for character to escape
-        -> GenParser Char st Inline
-escaped parser = try $ do
-  char '\\'
-  result <- parser
-  return (Str [result])
+        -> GenParser Char st Char
+escaped parser = try $ char '\\' >> parser
+
+-- | Parse character entity.
+characterReference :: GenParser Char st Char
+characterReference = try $ do
+  char '&'
+  ent <- many1Till nonspaceChar (char ';')
+  case lookupEntity ent of
+       Just c  -> return c
+       Nothing -> fail "entity not found"
 
 -- | Parses an uppercase roman numeral and returns (UpperRoman, number).
 upperRoman :: GenParser Char st (ListNumberStyle, Int)
@@ -512,7 +528,7 @@ gridTableWith block tableCaption headless =
 
 gridTableSplitLine :: [Int] -> String -> [String]
 gridTableSplitLine indices line = map removeFinalBar $ tail $
-  splitByIndices (init indices) $ removeTrailingSpace line
+  splitStringByIndices (init indices) $ removeTrailingSpace line
 
 gridPart :: Char -> GenParser Char st (Int, Int)
 gridPart ch = do
@@ -598,7 +614,7 @@ readWith :: GenParser t ParserState a      -- ^ parser
          -> a
 readWith parser state input = 
     case runParser parser state "source" input of
-      Left err     -> error $ "\nError:\n" ++ show err
+      Left err'    -> error $ "\nError:\n" ++ show err'
       Right result -> result
 
 -- | Parse a string with @parser@ (for testing).
@@ -613,6 +629,8 @@ data ParserState = ParserState
     { stateParseRaw        :: Bool,          -- ^ Parse raw HTML and LaTeX?
       stateParserContext   :: ParserContext, -- ^ Inside list?
       stateQuoteContext    :: QuoteContext,  -- ^ Inside quoted environment?
+      stateMaxNestingLevel :: Int,           -- ^ Max # of nested Strong/Emph
+      stateLastStrPos      :: Maybe SourcePos, -- ^ Position after last str parsed
       stateKeys            :: KeyTable,      -- ^ List of reference keys
       stateCitations       :: [String],      -- ^ List of available citations
       stateNotes           :: NoteTable,     -- ^ List of notes
@@ -623,6 +641,9 @@ data ParserState = ParserState
       stateDate            :: [Inline],      -- ^ Date of document
       stateStrict          :: Bool,          -- ^ Use strict markdown syntax?
       stateSmart           :: Bool,          -- ^ Use smart typography?
+      stateOldDashes       :: Bool,          -- ^ Use pandoc <= 1.8.2.1 behavior
+                                             --   in parsing dashes; -- is em-dash;
+                                             --   before numeral is en-dash
       stateLiterateHaskell :: Bool,          -- ^ Treat input as literate haskell
       stateColumns         :: Int,           -- ^ Number of columns in terminal
       stateHeaderTable     :: [HeaderType],  -- ^ Ordered list of header types used
@@ -640,6 +661,8 @@ defaultParserState =
     ParserState { stateParseRaw        = False,
                   stateParserContext   = NullState,
                   stateQuoteContext    = NoQuote,
+                  stateMaxNestingLevel = 6,
+                  stateLastStrPos      = Nothing,
                   stateKeys            = M.empty,
                   stateCitations       = [],
                   stateNotes           = [],
@@ -650,6 +673,7 @@ defaultParserState =
                   stateDate            = [],
                   stateStrict          = False,
                   stateSmart           = False,
+                  stateOldDashes       = False,
                   stateLiterateHaskell = False,
                   stateColumns         = 80,
                   stateHeaderTable     = [],
@@ -714,7 +738,7 @@ smartPunctuation inlineParser = do
   choice [ quoted inlineParser, apostrophe, dash, ellipses ]
 
 apostrophe :: GenParser Char ParserState Inline
-apostrophe = (char '\'' <|> char '\8217') >> return Apostrophe
+apostrophe = (char '\'' <|> char '\8217') >> return (Str "\x2019")
 
 quoted :: GenParser Char ParserState Inline
        -> GenParser Char ParserState Inline
@@ -761,8 +785,12 @@ charOrRef cs =
                        return c)
 
 singleQuoteStart :: GenParser Char ParserState ()
-singleQuoteStart = do 
+singleQuoteStart = do
   failIfInQuoteContext InSingleQuote
+  pos <- getPosition
+  st <- getState
+  -- single quote start can't be right after str
+  guard $ stateLastStrPos st /= Just pos
   try $ do charOrRef "'\8216\145"
            notFollowedBy (oneOf ")!],;:-? \t\n")
            notFollowedBy (char '.') <|> lookAhead (string "..." >> return ())
@@ -789,22 +817,42 @@ doubleQuoteEnd = do
 
 ellipses :: GenParser Char st Inline
 ellipses = do
-  try (charOrRef "…\133") <|> try (string "..." >> return '…')
-  return Ellipses
+  try (charOrRef "\8230\133") <|> try (string "..." >> return '…')
+  return (Str "\8230")
 
-dash :: GenParser Char st Inline
-dash = enDash <|> emDash
+dash :: GenParser Char ParserState Inline
+dash = do
+  oldDashes <- stateOldDashes `fmap` getState
+  if oldDashes
+     then emDashOld <|> enDashOld
+     else Str `fmap` (hyphenDash <|> emDash <|> enDash)
 
-enDash :: GenParser Char st Inline
-enDash = do
-  try (charOrRef "–\150") <|>
-    try (char '-' >> lookAhead (satisfy isDigit) >> return '–')
-  return EnDash
+-- Two hyphens = en-dash, three = em-dash
+hyphenDash :: GenParser Char st String
+hyphenDash = do
+  try $ string "--"
+  option "\8211" (char '-' >> return "\8212")
 
-emDash :: GenParser Char st Inline
+emDash :: GenParser Char st String
 emDash = do
-  try (charOrRef "—\151") <|> (try $ string "--" >> optional (char '-') >> return '—')
-  return EmDash
+  try (charOrRef "\8212\151")
+  return "\8212"
+
+enDash :: GenParser Char st String
+enDash = do
+  try (charOrRef "\8212\151")
+  return "\8211"
+
+enDashOld :: GenParser Char st Inline
+enDashOld = do
+  try (charOrRef "\8211\150") <|>
+    try (char '-' >> lookAhead (satisfy isDigit) >> return '–')
+  return (Str "\8211")
+
+emDashOld :: GenParser Char st Inline
+emDashOld = do
+  try (charOrRef "\8212\151") <|> (try $ string "--" >> optional (char '-') >> return '-')
+  return (Str "\8212")
 
 --
 -- Macros

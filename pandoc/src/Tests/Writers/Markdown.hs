@@ -22,13 +22,13 @@ which is in turn shorthand for
   test markdown "my test" (X,Y)
 -}
 
-infix 5 =:
+infix 4 =:
 (=:) :: (ToString a, ToPandoc a)
      => String -> (a, String) -> Test
 (=:) = test markdown
 
 tests :: [Test]
 tests = [ "indented code after list"
-             =: (orderedList [ para "one" +++ para "two" ] +++ codeBlock "test")
+             =: (orderedList [ para "one" <> para "two" ] <> codeBlock "test")
              =?> "1.  one\n\n    two\n\n<!-- -->\n\n    test"
         ]
