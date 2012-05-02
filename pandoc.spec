@@ -14,7 +14,6 @@ Summary: Markup conversion tool for markdown
 Group: Publishing
 License: GPLv2+
 Url: http://hackage.haskell.org/package/%name
-Packager: Vitaly Kuznetsov <vitty@altlinux.ru>
 
 Source: http://hackage.haskell.org/packages/archive/%name/%version/%name-%version.tar.gz
 
@@ -22,16 +21,18 @@ BuildRequires: ghc%ghc_version-base64-bytestring ghc%ghc_version-citeproc-hs ghc
 BuildRequires(pre): rpm-build-haskell
 
 %description
-Pandoc is a Haskell library for converting from one markup format to another,
-and a command-line tool that uses this library. It can read markdown and
-(subsets of) reStructuredText, HTML, and LaTeX, and it can write markdown,
-reStructuredText, HTML, LaTeX, ConTeXt, Docbook, OpenDocument, ODT, RTF,
-MediaWiki, groff man pages, EPUB, and S5 and Slidy HTML slide shows.
+Pandoc is a Haskell library for converting from one markup format to
+another, and a command-line tool that uses this library. It can read
+markdown and (subsets of) reStructuredText, HTML, and LaTeX, and it can
+write markdown, reStructuredText, HTML, LaTeX, ConTeXt, Docbook,
+OpenDocument, ODT, RTF, MediaWiki, groff man pages, EPUB, and S5 and
+Slidy HTML slide shows.
 
 %prep
 %setup -q
 
 %build
+rm -f man/man1/pandoc.1
 runghc Setup configure --bindir=%_bindir --libdir=%_libdir --datadir=%_datadir --docdir=%_docdir
 runghc Setup build
 
@@ -49,6 +50,9 @@ runghc Setup copy --destdir=%buildroot
 %changelog
 * Wed May 02 2012 Vitaly Kuznetsov <vitty@altlinux.ru> 1.9.2-alt1
 - 1.9.2
+
+* Mon Mar 19 2012 Denis Smirnov <mithraen@altlinux.ru> 1.9.1.2-alt1
+- 1.9.1.2
 
 * Wed Aug 03 2011 Vitaly Kuznetsov <vitty@altlinux.ru> 1.8.2.1-alt1
 - 1.8.2.1
