@@ -1,3 +1,4 @@
+%define ghc_version 7.4.1
 %define hsc_name ghc
 %define hsc_version %ghc_version
 %define hsc_namever %hsc_name
@@ -6,7 +7,7 @@
 %define pkg_libdir %_libdir/%hsc_name-%hsc_version/lib/%h_pkg_name-%version
 
 Name: pandoc
-Version: 1.8.2.1
+Version: 1.9.2
 Release: alt1
 Summary: Markup conversion tool for markdown
 
@@ -17,14 +18,14 @@ Packager: Vitaly Kuznetsov <vitty@altlinux.ru>
 
 Source: http://hackage.haskell.org/packages/archive/%name/%version/%name-%version.tar.gz
 
-BuildRequires: ghc, ghc-doc, ghc-prof, ghc-http, ghc-network, ghc-mtl, ghc-parsec, ghc-syb, ghc-utf8-string, ghc-xml, ghc-texmath, ghc-xhtml, ghc-zip-archive, ghc-texmath, ghc-tagsoup, ghc-dlist, ghc-citeproc-hs, ghc-json, ghc-base64-bytestring
+BuildRequires: ghc%ghc_version-base64-bytestring ghc%ghc_version-citeproc-hs ghc%ghc_version-highlighting-kate ghc%ghc_version-http ghc%ghc_version-random ghc%ghc_version-tagsoup ghc%ghc_version-temporary ghc%ghc_version-texmath ghc%ghc_version-zip-archive zlib-devel
 BuildRequires(pre): rpm-build-haskell
 
 %description
-Pandoc is a Haskell library for converting from one markup format to another,\
-and a command-line tool that uses this library. It can read markdown and\
-(subsets of) reStructuredText, HTML, and LaTeX, and it can write markdown,\
-reStructuredText, HTML, LaTeX, ConTeXt, Docbook, OpenDocument, ODT, RTF,\
+Pandoc is a Haskell library for converting from one markup format to another,
+and a command-line tool that uses this library. It can read markdown and
+(subsets of) reStructuredText, HTML, and LaTeX, and it can write markdown,
+reStructuredText, HTML, LaTeX, ConTeXt, Docbook, OpenDocument, ODT, RTF,
 MediaWiki, groff man pages, EPUB, and S5 and Slidy HTML slide shows.
 
 %prep
@@ -40,13 +41,15 @@ runghc Setup copy --destdir=%buildroot
 %files
 %doc BUGS COPYING COPYRIGHT README
 %attr(755,root,root) %_bindir/%name
-%attr(755,root,root) %_bindir/markdown2pdf
 %_datadir/%name-%version
 %_libdir/%name-%version
 %attr(644,root,root) %_man1dir/*
 %attr(644,root,root) %_man5dir/*
 
 %changelog
+* Wed May 02 2012 Vitaly Kuznetsov <vitty@altlinux.ru> 1.9.2-alt1
+- 1.9.2
+
 * Wed Aug 03 2011 Vitaly Kuznetsov <vitty@altlinux.ru> 1.8.2.1-alt1
 - 1.8.2.1
 
