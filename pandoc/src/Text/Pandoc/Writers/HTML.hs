@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, CPP #-}
 {-# OPTIONS_GHC -fno-warn-deprecations #-}
 {-
 Copyright (C) 2006-2010 John MacFarlane <jgm@berkeley.edu>
@@ -46,7 +46,12 @@ import Data.List ( isPrefixOf, intersperse )
 import Data.String ( fromString )
 import Data.Maybe ( catMaybes )
 import Control.Monad.State
+#if MIN_VERSION_blaze_html(0,5,0)
+import Text.Blaze.Html hiding(contents)
+import Text.Blaze.Internal(preEscapedString)
+#else
 import Text.Blaze
+#endif
 import qualified Text.Blaze.Html5 as H5
 import qualified Text.Blaze.XHtml1.Transitional as H
 import qualified Text.Blaze.XHtml1.Transitional.Attributes as A
@@ -194,6 +199,7 @@ inTemplate opts tit auths authsMeta date toc body' newvars =
                     , ("date", date')
                     , ("idprefix", writerIdentifierPrefix opts)
                     , ("slidy-url", "http://www.w3.org/Talks/Tools/Slidy2")
+                    , ("slideous-url", "slideous")
                     , ("s5-url", "s5/default") ] ++
                     [ ("html5","true") | writerHtml5 opts ] ++
                     (case toc of
@@ -256,7 +262,9 @@ elementToHtml slideLevel opts (Sec level num id' title' elements) = do
   -- always use level 1 for slide titles
   let level' = if slide then 1 else level
   let titleSlide = slide && level < slideLevel
-  header' <- blockToHtml opts (Header level' title')
+  header' <- if title' == [Str "\0"]  -- marker for hrule
+                then return mempty
+                else blockToHtml opts (Header level' title')
   let isSec (Sec _ _ _ _ _) = True
       isSec (Blk _)         = False
   innerContents <- mapM (elementToHtml slideLevel opts)

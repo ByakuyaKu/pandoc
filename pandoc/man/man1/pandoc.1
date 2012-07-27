@@ -9,11 +9,12 @@ pandoc [\f[I]options\f[]] [\f[I]input-file\f[]]...
 Pandoc is a Haskell library for converting from one markup format to
 another, and a command-line tool that uses this library.
 It can read markdown and (subsets of) Textile, reStructuredText, HTML,
-and LaTeX; and it can write plain text, markdown, reStructuredText,
-XHTML, HTML 5, LaTeX (including beamer slide shows), ConTeXt, RTF,
-DocBook XML, OpenDocument XML, ODT, Word docx, GNU Texinfo, MediaWiki
-markup, EPUB, Textile, groff man pages, Emacs Org-Mode, AsciiDoc, and
-Slidy, DZSlides, or S5 HTML slide shows.
+LaTeX, and DocBook XML; and it can write plain text, markdown,
+reStructuredText, XHTML, HTML 5, LaTeX (including beamer slide shows),
+ConTeXt, RTF, DocBook XML, OpenDocument XML, ODT, Word docx, GNU
+Texinfo, MediaWiki markup, EPUB, Textile, groff man pages, Emacs
+Org-Mode, AsciiDoc, and Slidy, Slideous, DZSlides, or S5 HTML slide
+shows.
 It can also produce PDF output on systems where LaTeX is installed.
 .PP
 Pandoc\[aq]s enhanced version of markdown includes syntax for footnotes,
@@ -164,7 +165,8 @@ Specify input format.
 \f[I]FORMAT\f[] can be \f[C]native\f[] (native Haskell), \f[C]json\f[]
 (JSON version of native AST), \f[C]markdown\f[] (markdown),
 \f[C]textile\f[] (Textile), \f[C]rst\f[] (reStructuredText),
-\f[C]html\f[] (HTML), or \f[C]latex\f[] (LaTeX).
+\f[C]html\f[] (HTML), \f[C]docbook\f[] (DocBook XML), or \f[C]latex\f[]
+(LaTeX).
 If \f[C]+lhs\f[] is appended to \f[C]markdown\f[], \f[C]rst\f[],
 \f[C]latex\f[], the input will be treated as literate Haskell source:
 see Literate Haskell support, below.
@@ -185,9 +187,9 @@ markup), \f[C]textile\f[] (Textile), \f[C]org\f[] (Emacs Org-Mode),
 \f[C]opendocument\f[] (OpenDocument XML), \f[C]odt\f[] (OpenOffice text
 document), \f[C]docx\f[] (Word docx), \f[C]epub\f[] (EPUB book),
 \f[C]asciidoc\f[] (AsciiDoc), \f[C]slidy\f[] (Slidy HTML and javascript
-slide show), \f[C]dzslides\f[] (HTML5 + javascript slide show),
-\f[C]s5\f[] (S5 HTML and javascript slide show), or \f[C]rtf\f[] (rich
-text format).
+slide show), \f[C]slideous\f[] (Slideous HTML and javascript slide
+show), \f[C]dzslides\f[] (HTML5 + javascript slide show), \f[C]s5\f[]
+(S5 HTML and javascript slide show), or \f[C]rtf\f[] (rich text format).
 Note that \f[C]odt\f[] and \f[C]epub\f[] output will not be directed to
 \f[I]stdout\f[]; an output filename must be specified using the
 \f[C]-o/--output\f[] option.
@@ -228,9 +230,9 @@ C:\\Documents\ And\ Settings\\USERNAME\\Application\ Data\\pandoc
 .PP
 in Windows.
 A \f[C]reference.odt\f[], \f[C]reference.docx\f[], \f[C]default.csl\f[],
-\f[C]epub.css\f[], \f[C]templates\f[], \f[C]slidy\f[], or \f[C]s5\f[]
-directory placed in this directory will override pandoc\[aq]s normal
-defaults.
+\f[C]epub.css\f[], \f[C]templates\f[], \f[C]slidy\f[],
+\f[C]slideous\f[], or \f[C]s5\f[] directory placed in this directory
+will override pandoc\[aq]s normal defaults.
 .RE
 .TP
 .B \f[C]-v\f[], \f[C]--version\f[]
@@ -257,7 +259,7 @@ Parse untranslatable HTML codes and LaTeX environments as raw HTML or
 LaTeX, instead of ignoring them.
 Affects only HTML and LaTeX input.
 Raw HTML can be printed in markdown, reStructuredText, HTML, Slidy,
-DZSlides, and S5 output; raw LaTeX can be printed in markdown,
+Slideous, DZSlides, and S5 output; raw LaTeX can be printed in markdown,
 reStructuredText, LaTeX, and ConTeXt output.
 The default is for the readers to omit untranslatable HTML codes and
 LaTeX environments.
@@ -274,7 +276,8 @@ Nonbreaking spaces are inserted after certain abbreviations, such as
 "Mr." (Note: This option is significant only when the input format is
 \f[C]markdown\f[] or \f[C]textile\f[].
 It is selected automatically when the input format is \f[C]textile\f[]
-or the output format is \f[C]latex\f[] or \f[C]context\f[].)
+or the output format is \f[C]latex\f[] or \f[C]context\f[], unless
+\f[C]--no-tex-ligatures\f[] is used.)
 .RS
 .RE
 .TP
@@ -373,7 +376,7 @@ Include an automatically generated table of contents (or, in the case of
 \f[C]latex\f[], \f[C]context\f[], and \f[C]rst\f[], an instruction to
 create one) in the output document.
 This option has no effect on \f[C]man\f[], \f[C]docbook\f[],
-\f[C]slidy\f[], or \f[C]s5\f[] output.
+\f[C]slidy\f[], \f[C]slideous\f[], or \f[C]s5\f[] output.
 .RS
 .RE
 .TP
@@ -386,8 +389,8 @@ language attribute is given.
 .B \f[C]--highlight-style\f[]=\f[I]STYLE\f[]
 Specifies the coloring style to be used in highlighted source code.
 Options are \f[C]pygments\f[] (the default), \f[C]kate\f[],
-\f[C]monochrome\f[], \f[C]espresso\f[], \f[C]haddock\f[], and
-\f[C]tango\f[].
+\f[C]monochrome\f[], \f[C]espresso\f[], \f[C]zenburn\f[],
+\f[C]haddock\f[], and \f[C]tango\f[].
 .RS
 .RE
 .TP
@@ -437,7 +440,7 @@ needs no external files and no net access to be displayed properly by a
 browser.
 This option works only with HTML output formats, including
 \f[C]html\f[], \f[C]html5\f[], \f[C]html+lhs\f[], \f[C]html5+lhs\f[],
-\f[C]s5\f[], \f[C]slidy\f[], and \f[C]dzslides\f[].
+\f[C]s5\f[], \f[C]slidy\f[], \f[C]slideous\f[], and \f[C]dzslides\f[].
 Scripts, images, and stylesheets at absolute URLs will be downloaded;
 those at relative URLs will be sought first relative to the working
 directory, then relative to the user data directory (see
@@ -495,6 +498,21 @@ By default, sections are not numbered.
 .RS
 .RE
 .TP
+.B \f[C]--no-tex-ligatures\f[]
+Do not convert quotation marks, apostrophes, and dashes to the TeX
+ligatures when writing LaTeX or ConTeXt.
+Instead, just use literal unicode characters.
+This is needed for using advanced OpenType features with XeLaTeX and
+LuaLaTeX.
+Note: normally \f[C]--smart\f[] is selected automatically for LaTeX and
+ConTeXt output, but it must be specified explicitly if
+\f[C]--no-tex-ligatures\f[] is selected.
+If you use literal curly quotes, dashes, and ellipses in your source,
+then you may want to use \f[C]--no-tex-ligatures\f[] without
+\f[C]--smart\f[].
+.RS
+.RE
+.TP
 .B \f[C]--listings\f[]
 Use listings package for LaTeX code blocks
 .RS
@@ -508,7 +526,8 @@ The default is for lists to be displayed all at once.
 .TP
 .B \f[C]--slide-level\f[]=\f[I]NUMBER\f[]
 Specifies that headers with the specified level create slides (for
-\f[C]beamer\f[], \f[C]s5\f[], \f[C]slidy\f[], \f[C]dzslides\f[]).
+\f[C]beamer\f[], \f[C]s5\f[], \f[C]slidy\f[], \f[C]slideous\f[],
+\f[C]dzslides\f[]).
 Headers above this level in the hierarchy are used to divide the slide
 show into sections; headers below this level create subheads within a
 slide.
@@ -942,6 +961,11 @@ base URL for Slidy documents (defaults to
 .RS
 .RE
 .TP
+.B \f[C]slideous-url\f[]
+base URL for Slideous documents (defaults to \f[C]default\f[])
+.RS
+.RE
+.TP
 .B \f[C]s5-url\f[]
 base URL for S5 documents (defaults to \f[C]ui/default\f[])
 .RS
@@ -976,6 +1000,23 @@ theme for LaTeX beamer documents
 .TP
 .B \f[C]colortheme\f[]
 colortheme for LaTeX beamer documents
+.RS
+.RE
+.TP
+.B \f[C]linkcolor\f[]
+color for internal links in LaTeX documents (\f[C]red\f[],
+\f[C]green\f[], \f[C]magenta\f[], \f[C]cyan\f[], \f[C]blue\f[],
+\f[C]black\f[])
+.RS
+.RE
+.TP
+.B \f[C]urlcolor\f[]
+color for external links in LaTeX documents
+.RS
+.RE
+.TP
+.B \f[C]links-as-notes\f[]
+causes links to be printed as footnotes in LaTeX documents
 .RS
 .RE
 .PP
@@ -1033,7 +1074,7 @@ after each pandoc release.
 .PP
 You can use Pandoc to produce an HTML + javascript slide presentation
 that can be viewed via a web browser.
-There are three ways to do this, using S5, DZSlides, or Slidy.
+There are four ways to do this, using S5, DZSlides, Slidy, or Slideous.
 You can also produce a PDF slide show using LaTeX beamer.
 .PP
 Here\[aq]s the markdown source for a simple slide show,
@@ -1095,6 +1136,14 @@ for Slidy,
 .IP
 .nf
 \f[C]
+pandoc\ -t\ slideous\ -s\ habits.txt\ -o\ habits.html
+\f[]
+.fi
+.PP
+for Slideous,
+.IP
+.nf
+\f[C]
 pandoc\ -t\ dzslides\ -s\ habits.txt\ -o\ habits.html
 \f[]
 .fi
@@ -1147,13 +1196,14 @@ subsections, you can just use level 1 headers for all each slide.
  But you can also structure the slide show into sections, as in the
 example above.
 .PP
-For Slidy and S5, the file produced by pandoc with the
+For Slidy, Slideous and S5, the file produced by pandoc with the
 \f[C]-s/--standalone\f[] option embeds a link to javascripts and CSS
 files, which are assumed to be available at the relative path
-\f[C]s5/default\f[] (for S5) or at the Slidy website at \f[C]w3.org\f[]
-(for Slidy).
-(These paths can be changed by setting the \f[C]slidy-url\f[] or
-\f[C]s5-url\f[] variables; see \f[C]--variable\f[], above.)
+\f[C]s5/default\f[] (for S5) or \f[C]slideous\f[] (for Slideous), or at
+the Slidy website at \f[C]w3.org\f[] (for Slidy).
+(These paths can be changed by setting the \f[C]slidy-url\f[],
+\f[C]slideous-url\f[] or \f[C]s5-url\f[] variables; see
+\f[C]--variable\f[], above.)
  For DZSlides, the (relatively short) javascript and css are included in
 the file by default.
 .SS Incremental lists
@@ -1177,9 +1227,10 @@ single document.
 .SS Styling the slides
 .PP
 You can change the style of HTML slides by putting customized CSS files
-in \f[C]$DATADIR/s5/default\f[] (for S5) or \f[C]$DATADIR/slidy\f[] (for
-Slidy), where \f[C]$DATADIR\f[] is the user data directory (see
-\f[C]--data-dir\f[], above).
+in \f[C]$DATADIR/s5/default\f[] (for S5), \f[C]$DATADIR/slidy\f[] (for
+Slidy), or \f[C]$DATADIR/slideous\f[] (for Slideous), where
+\f[C]$DATADIR\f[] is the user data directory (see \f[C]--data-dir\f[],
+above).
 The originals may be found in pandoc\[aq]s system data directory
 (generally \f[C]$CABALDIR/pandoc-VERSION/s5/default\f[]).
 Pandoc will look there for any files it does not find in the user data
@@ -1264,7 +1315,7 @@ Puneeth Chaganti, Paul Rivier, rodja.trappe, Bradley Kuhn, thsutton,
 Nathan Gass, Jonathan Daugherty, Jérémy Bobbio, Justin Bogner, qerub,
 Christopher Sawicki, Kelsey Hightower, Masayoshi Takahashi, Antoine
 Latter, Ralf Stephan, Eric Seidel, B.
-Scott Michel.
+Scott Michel, Gavin Beatty.
 .SH PANDOC'S MARKDOWN
 For a complete description of pandoc's extensions to standard markdown,
 see \f[C]pandoc_markdown\f[] (5).

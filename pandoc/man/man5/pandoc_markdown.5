@@ -544,9 +544,9 @@ numerals:
 \f[]
 .fi
 .PP
-Note that Pandoc pays attention only to the \f[I]starting\f[] marker in
-a list.
-So, the following yields a list numbered sequentially starting from 2:
+Pandoc will start a new list each time a different type of list marker
+is used.
+So, the following will create three lists:
 .IP
 .nf
 \f[C]
@@ -1181,6 +1181,15 @@ in verbatim contexts:
 This\ is\ a\ backslash\ followed\ by\ an\ asterisk:\ `\\*`.
 \f[]
 .fi
+.PP
+Attributes can be attached to verbatim text, just as with delimited code
+blocks:
+.IP
+.nf
+\f[C]
+`<$>`{.haskell}
+\f[]
+.fi
 .SH MATH
 .PP
 \f[I]Pandoc extension\f[].
@@ -1251,7 +1260,7 @@ It will be rendered using OMML math markup.
 .RS
 .RE
 .TP
-.B HTML, Slidy, DZSlides, S5, EPUB
+.B HTML, Slidy, Slideous, DZSlides, S5, EPUB
 The way math is rendered in HTML will depend on the command-line options
 selected:
 .RS
@@ -1311,8 +1320,9 @@ Markdown allows you to insert raw HTML (or DocBook) anywhere in a
 document (except verbatim contexts, where \f[C]<\f[], \f[C]>\f[], and
 \f[C]&\f[] are interpreted literally).
 .PP
-The raw HTML is passed through unchanged in HTML, S5, Slidy, DZSlides,
-EPUB, Markdown, and Textile output, and suppressed in other formats.
+The raw HTML is passed through unchanged in HTML, S5, Slidy, Slideous,
+DZSlides, EPUB, Markdown, and Textile output, and suppressed in other
+formats.
 .PP
 \f[I]Pandoc extension\f[].
 .PP

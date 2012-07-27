@@ -82,8 +82,15 @@ controlSeq name = try $ do
   case name of
         ""   -> mzero
         [c] | not (isLetter c) -> string [c]
-        cs   -> string cs <* optional sp
+        cs   -> string cs <* notFollowedBy letter <* optional sp
   return name
+
+dimenarg :: LP String
+dimenarg = try $ do
+  ch  <- option "" $ string "="
+  num <- many1 digit
+  dim <- oneOfStrings ["pt","pc","in","bp","cm","mm","dd","cc","sp"]
+  return $ ch ++ num ++ dim
 
 sp :: LP ()
 sp = skipMany1 $ satisfy (\c -> c == ' ' || c == '\t')
@@ -112,18 +119,28 @@ comment = do
   newline
   return ()
 
+bgroup :: LP ()
+bgroup = () <$ char '{'
+     <|> () <$ controlSeq "bgroup"
+     <|> () <$ controlSeq "begingroup"
+
+egroup :: LP ()
+egroup = () <$ char '}'
+     <|> () <$ controlSeq "egroup"
+     <|> () <$ controlSeq "endgroup"
+
 grouped :: Monoid a => LP a -> LP a
-grouped parser = try $ char '{' *> (mconcat <$> manyTill parser (char '}'))
+grouped parser = try $ bgroup *> (mconcat <$> manyTill parser egroup)
 
 braced :: LP String
-braced = char '{' *> (concat <$> manyTill
+braced = bgroup *> (concat <$> manyTill
          (  many1 (satisfy (\c -> c /= '\\' && c /= '}' && c /= '{'))
         <|> try (string "\\}")
         <|> try (string "\\{")
         <|> try (string "\\\\")
         <|> ((\x -> "{" ++ x ++ "}") <$> braced)
         <|> count 1 anyChar
-         ) (char '}'))
+         ) egroup)
 
 bracketed :: Monoid a => LP a -> LP a
 bracketed parser = try $ char '[' *> (mconcat <$> manyTill parser (char ']'))
@@ -181,7 +198,7 @@ inlines = mconcat <$> many (notFollowedBy (char '}') *> inline)
 
 block :: LP Blocks
 block = (mempty <$ comment)
-    <|> (mempty <$ ((spaceChar <|> blankline) *> spaces))
+    <|> (mempty <$ ((spaceChar <|> newline) *> spaces))
     <|> environment
     <|> mempty <$ macro -- TODO improve macros, make them work everywhere
     <|> blockCommand
@@ -251,6 +268,7 @@ blockCommands = M.fromList $
   , ("end", mzero)
   , ("item", skipopts *> loose_item)
   , ("documentclass", skipopts *> braced *> preamble)
+  , ("centerline", (para . trimInlines) <$> (skipopts *> tok))
   ] ++ map ignoreBlocks
   -- these commands will be ignored unless --parse-raw is specified,
   -- in which case they will appear as raw latex blocks
@@ -281,7 +299,9 @@ authors :: LP ()
 authors = try $ do
   char '{'
   let oneAuthor = mconcat <$>
-       many1 (notFollowedBy' (controlSeq "and") >> inline)
+       many1 (notFollowedBy' (controlSeq "and") >>
+               (inline <|> mempty <$ blockCommand))
+               -- skip e.g. \vspace{10pt}
   auths <- sepBy oneAuthor (controlSeq "and")
   char '}'
   updateState (\s -> s { stateAuthors = map (normalizeSpaces . toList) auths })
@@ -304,16 +324,19 @@ inlineCommand = try $ do
   parseRaw <- stateParseRaw `fmap` getState
   star <- option "" (string "*")
   let name' = name ++ star
+  let rawargs = withRaw (skipopts *> option "" dimenarg
+                  *> many braced) >>= applyMacros' . snd
+  let raw = if parseRaw
+               then (rawInline "latex" . (('\\':name') ++)) <$> rawargs
+               else mempty <$> rawargs
   case M.lookup name' inlineCommands of
-       Just p      -> p
+       Just p      -> p <|> raw
        Nothing     -> case M.lookup name inlineCommands of
-                           Just p    -> p
-                           Nothing
-                             | parseRaw  ->
-                                (rawInline "latex" . (('\\':name') ++)) <$>
-                                 (withRaw (skipopts *> many braced)
-                                      >>= applyMacros' . snd)
-                             | otherwise -> return mempty
+                           Just p    -> p <|> raw
+                           Nothing   -> raw
+
+unlessParseRaw :: LP ()
+unlessParseRaw = getState >>= guard . not . stateParseRaw
 
 isBlockCommand :: String -> Bool
 isBlockCommand s = maybe False (const True) $ M.lookup s blockCommands
@@ -333,8 +356,8 @@ inlineCommands = M.fromList $
   , ("dots", lit "…")
   , ("mdots", lit "…")
   , ("sim", lit "~")
-  , ("label", inBrackets <$> tok)
-  , ("ref", inBrackets <$> tok)
+  , ("label", unlessParseRaw >> (inBrackets <$> tok))
+  , ("ref", unlessParseRaw >> (inBrackets <$> tok))
   , ("(", mathInline $ manyTill anyChar (try $ string "\\)"))
   , ("[", mathDisplay $ manyTill anyChar (try $ string "\\]"))
   , ("ensuremath", mathInline $ braced)
