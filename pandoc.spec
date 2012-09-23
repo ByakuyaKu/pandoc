@@ -8,7 +8,7 @@
 
 Name: pandoc
 Version: 1.9.4.2
-Release: alt2
+Release: alt3
 Summary: Markup conversion tool for markdown
 
 Group: Publishing
@@ -49,6 +49,9 @@ runghc Setup copy --destdir=%buildroot
 %attr(644,root,root) %_man5dir/*
 
 %changelog
+* Sun Sep 23 2012 Denis Smirnov <mithraen@altlinux.ru> 1.9.4.2-alt3
+- add watch-file for gear-cronbuild
+
 * Sat Jul 28 2012 Denis Smirnov <mithraen@altlinux.ru> 1.9.4.2-alt1
 - 1.9.4.2
 
