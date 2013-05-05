@@ -32,51 +32,18 @@ the HTML using data URIs.
 -}
 module Text.Pandoc.SelfContained ( makeSelfContained ) where
 import Text.HTML.TagSoup
-import Network.URI (isAbsoluteURI, parseURI, escapeURIString)
-import Network.HTTP
+import Network.URI (isAbsoluteURI, escapeURIString)
 import Data.ByteString.Base64
 import qualified Data.ByteString.Char8 as B
 import Data.ByteString (ByteString)
-import Data.ByteString.UTF8 (toString, fromString)
 import System.FilePath (takeExtension, dropExtension, takeDirectory, (</>))
 import Data.Char (toLower, isAscii, isAlphaNum)
 import Codec.Compression.GZip as Gzip
 import qualified Data.ByteString.Lazy as L
-import Text.Pandoc.Shared (findDataFile)
+import Text.Pandoc.Shared (renderTags', openURL, readDataFile)
+import Text.Pandoc.UTF8 (toString,  fromString)
 import Text.Pandoc.MIME (getMimeType)
 import System.Directory (doesFileExist)
-
-getItem :: Maybe FilePath -> String -> IO (ByteString, Maybe String)
-getItem userdata f =
-  if isAbsoluteURI f
-     then openURL f
-     else do
-       let mime = case takeExtension f of
-                      ".gz" -> getMimeType $ dropExtension f
-                      x     -> getMimeType x
-       exists <- doesFileExist f
-       if exists
-          then do
-            cont <- B.readFile f
-            return (cont, mime)
-          else do
-            res <- findDataFile userdata f
-            exists' <- doesFileExist res
-            if exists'
-               then do
-                 cont <- B.readFile res
-                 return (cont, mime)
-               else error $ "Could not find `" ++ f ++ "'"
-
--- TODO - have this return mime type too - then it can work for google
--- chart API, e.g.
-openURL :: String -> IO (ByteString, Maybe String)
-openURL u = getBodyAndMimeType =<< simpleHTTP (getReq u)
-  where getReq v = case parseURI v of
-                     Nothing  -> error $ "Could not parse URI: " ++ v
-                     Just u'  -> mkRequest GET u'
-        getBodyAndMimeType (Left err) = fail (show err)
-        getBodyAndMimeType (Right r)  = return (rspBody r, findHeader HdrContentType r)
 
 isOk :: Char -> Bool
 isOk c = isAscii c && isAlphaNum c
@@ -102,14 +69,14 @@ convertTag userdata t@(TagOpen "script" as) =
        src    -> do
            (raw, mime) <- getRaw userdata (fromAttrib "type" t) src
            let enc = "data:" ++ mime ++ "," ++ escapeURIString isOk (toString raw)
-           return $ TagOpen "script" (("src",enc) : [(x,y) | (x,y) <- as, x /= "src"]) 
+           return $ TagOpen "script" (("src",enc) : [(x,y) | (x,y) <- as, x /= "src"])
 convertTag userdata t@(TagOpen "link" as) =
   case fromAttrib "href" t of
        []  -> return t
        src -> do
            (raw, mime) <- getRaw userdata (fromAttrib "type" t) src
            let enc = "data:" ++ mime ++ "," ++ escapeURIString isOk (toString raw)
-           return $ TagOpen "link" (("href",enc) : [(x,y) | (x,y) <- as, x /= "href"]) 
+           return $ TagOpen "link" (("href",enc) : [(x,y) | (x,y) <- as, x /= "href"])
 convertTag _ t = return t
 
 cssURLs :: Maybe FilePath -> FilePath -> ByteString -> IO ByteString
@@ -131,6 +98,18 @@ cssURLs userdata d orig =
                   let enc = "data:" `B.append` fromString mime `B.append`
                                ";base64," `B.append` (encode raw)
                   return $ x `B.append` "url(" `B.append` enc `B.append` rest
+
+getItem :: Maybe FilePath -> String -> IO (ByteString, Maybe String)
+getItem userdata f =
+  if isAbsoluteURI f
+     then openURL f
+     else do
+       let mime = case takeExtension f of
+                       ".gz" -> getMimeType $ dropExtension f
+                       x     -> getMimeType x
+       exists <- doesFileExist f
+       cont <- if exists then B.readFile f else readDataFile userdata f
+       return (cont, mime)
 
 getRaw :: Maybe FilePath -> String -> String -> IO (ByteString, String)
 getRaw userdata mimetype src = do
@@ -163,14 +142,3 @@ makeSelfContained userdata inp = do
   out' <- mapM (convertTag userdata) tags
   return $ renderTags' out'
 
--- repeated from HTML reader:
-renderTags' :: [Tag String] -> String
-renderTags' = renderTagsOptions
-               renderOptions{ optMinimize = \x ->
-                                    let y = map toLower x
-                                    in  y == "hr" || y == "br" ||
-                                        y == "img" || y == "meta" ||
-                                        y == "link"
-                            , optRawTag = \x ->
-                                    let y = map toLower x
-                                    in  y == "script" || y == "style" }

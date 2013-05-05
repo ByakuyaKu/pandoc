@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, QuasiQuotes #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Tests.Writers.LaTeX (tests) where
 
 import Test.Framework
@@ -8,7 +8,7 @@ import Tests.Helpers
 import Tests.Arbitrary()
 
 latex :: (ToString a, ToPandoc a) => a -> String
-latex = writeLaTeX defaultWriterOptions . toPandoc
+latex = writeLaTeX def . toPandoc
 
 {-
   "my test" =: X =?> Y
@@ -31,5 +31,9 @@ tests :: [Test]
 tests = [ testGroup "code blocks"
           [ "in footnotes" =: note (para "hi" <> codeBlock "hi") =?>
             "\\footnote{hi\n\n\\begin{Verbatim}\nhi\n\\end{Verbatim}\n}"
+          ]
+        , testGroup "math"
+          [ "escape |" =: para (math "\\sigma|_{\\{x\\}}") =?>
+            "$\\sigma\\vert _{\\{x\\}}$"
           ]
         ]

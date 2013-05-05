@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, QuasiQuotes #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Tests.Writers.HTML (tests) where
 
 import Test.Framework
@@ -6,10 +6,10 @@ import Text.Pandoc.Builder
 import Text.Pandoc
 import Tests.Helpers
 import Tests.Arbitrary()
-import Text.Pandoc.Highlighting (languages) -- null if no hl support
+import Text.Highlighting.Kate (languages) -- null if no hl support
 
 html :: (ToString a, ToPandoc a) => a -> String
-html = writeHtmlString defaultWriterOptions{ writerWrapText = False } . toPandoc
+html = writeHtmlString def{ writerWrapText = False } . toPandoc
 
 {-
   "my test" =: X =?> Y

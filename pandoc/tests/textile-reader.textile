@@ -91,6 +91,12 @@ Asterisks tight:
 * asterisk 2
 * asterisk 3
 
+With line breaks:
+
+* asterisk 1
+newline
+* asterisk 2
+
 h2. Ordered
 
 Tight:
@@ -151,9 +157,11 @@ Just a "url":http://www.url.com
 
 "Email link":mailto:nobody@nowhere.net
 
-Automatic linking to http://www.example.com and foobar@example.com.
+Automatic linking to "$":http://www.example.com.
 
 "Example":http://www.example.com/: Example of a link followed by a colon.
+
+A link["with brackets":http://www.example.com]and no spaces.
 
 h1. Tables
 
@@ -185,7 +193,7 @@ and here !this_is_an_image.png!.
 
 h1. Attributes
 
-h2{color:red}. HTML and CSS attributes are ignored
+h2[en]{color:red}(foo bar #ident). HTML and CSS attributes are parsed in headers.
 
 as well as *(foo)inline attributes* of %{color:red} all kind%
 
@@ -235,7 +243,16 @@ Hi(c)2008 (C) 2008
 
 h1. Footnotes
 
-A note.[1]
+A note.[1]  Another note[2].
 
 fn1. The note
 is here!
+
+fn2. Other note.
+
+h1. Comment blocks
+
+###. my comment
+is here.
+
+not a comment.

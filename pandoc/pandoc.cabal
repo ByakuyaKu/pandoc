@@ -1,26 +1,27 @@
 Name:            pandoc
-Version:         1.9.4.5
+Version:         1.11.1
 Cabal-Version:   >= 1.10
 Build-Type:      Custom
 License:         GPL
 License-File:    COPYING
-Copyright:       (c) 2006-2012 John MacFarlane
+Copyright:       (c) 2006-2013 John MacFarlane
 Author:          John MacFarlane <jgm@berkeley.edu>
 Maintainer:      John MacFarlane <jgm@berkeley.edu>
 Bug-Reports:     https://github.com/jgm/pandoc/issues
 Stability:       alpha
 Homepage:        http://johnmacfarlane.net/pandoc
 Category:        Text
-Tested-With:     GHC == 6.12.1, GHC == 7.0.4, GHC == 7.4.1
+Tested-With:     GHC == 7.4.2, GHC == 7.6.1
 Synopsis:        Conversion between markup formats
 Description:     Pandoc is a Haskell library for converting from one markup
                  format to another, and a command-line tool that uses
                  this library. It can read markdown and (subsets of) HTML,
-                 reStructuredText, LaTeX, DocBook, and Textile, and it can write
-                 markdown, reStructuredText, HTML, LaTeX, ConTeXt, Docbook,
-                 OpenDocument, ODT, Word docx, RTF, MediaWiki, Textile,
-                 groff man pages, plain text, Emacs Org-Mode, AsciiDoc, EPUB,
-                 and S5, Slidy and Slideous HTML slide shows.
+                 reStructuredText, LaTeX, DocBook, MediaWiki markup,
+                 and Textile, and it can write markdown, reStructuredText,
+                 HTML, LaTeX, ConTeXt, Docbook, OpenDocument, ODT,
+                 Word docx, RTF, MediaWiki, Textile, groff man pages,
+                 plain text, Emacs Org-Mode, AsciiDoc, EPUB (v2 and v3),
+                 FictionBook2, and S5, Slidy and Slideous HTML slide shows.
                  .
                  Pandoc extends standard markdown syntax with footnotes,
                  embedded LaTeX, definition lists, tables, and other
@@ -37,55 +38,58 @@ Description:     Pandoc is a Haskell library for converting from one markup
                  only adding a reader or writer.
 Data-Files:
                  -- templates
-                 templates/default.html, templates/default.html5,
-                 templates/default.docbook, templates/default.beamer,
-                 templates/default.opendocument, templates/default.latex,
-                 templates/default.context, templates/default.texinfo,
-                 templates/default.man, templates/default.markdown,
-                 templates/default.rst, templates/default.plain,
-                 templates/default.mediawiki, templates/default.rtf,
-                 templates/default.s5, templates/default.slidy,
-                 templates/default.slideous,
-                 templates/default.dzslides, templates/default.asciidoc,
-                 templates/default.textile, templates/default.org,
-                 templates/epub-titlepage.html, templates/epub-page.html,
-                 templates/epub-coverimage.html,
+                 data/templates/default.html, data/templates/default.html5,
+                 data/templates/default.docbook, data/templates/default.beamer,
+                 data/templates/default.opendocument,
+		 data/templates/default.latex,
+                 data/templates/default.context,
+		 data/templates/default.texinfo,
+                 data/templates/default.man,
+		 data/templates/default.markdown,
+                 data/templates/default.rst, data/templates/default.plain,
+                 data/templates/default.mediawiki, data/templates/default.rtf,
+                 data/templates/default.s5, data/templates/default.slidy,
+                 data/templates/default.slideous,
+                 data/templates/default.dzslides,
+		 data/templates/default.asciidoc,
+                 data/templates/default.textile, data/templates/default.org,
+                 data/templates/default.epub, data/templates/default.epub3,
                  -- data for ODT writer
-                 reference.odt,
+                 data/reference.odt,
                  -- data for docx writer
-                 reference.docx,
+                 data/reference.docx,
                  -- stylesheet for EPUB writer
-                 epub.css,
+                 data/epub.css,
                  -- data for LaTeXMathML writer
                  data/LaTeXMathML.js,
                  data/MathMLinHTML.js,
                  -- data for S5 writer
-                 s5/default/slides.js,
-                 s5/default/s5-core.css,
-                 s5/default/framing.css,
-                 s5/default/pretty.css,
-                 s5/default/opera.css,
-                 s5/default/outline.css,
-                 s5/default/print.css,
-                 s5/default/slides.css,
-                 s5/default/iepngfix.htc,
-                 s5/default/blank.gif,
-                 s5/default/bodybg.gif,
+                 data/s5/default/slides.js,
+                 data/s5/default/s5-core.css,
+                 data/s5/default/framing.css,
+                 data/s5/default/pretty.css,
+                 data/s5/default/opera.css,
+                 data/s5/default/outline.css,
+                 data/s5/default/print.css,
+                 data/s5/default/slides.css,
+                 data/s5/default/iepngfix.htc,
+                 data/s5/default/blank.gif,
+                 data/s5/default/bodybg.gif,
                  -- data for slidy writer
-                 slidy/styles/slidy.css,
-                 slidy/scripts/slidy.js.gz,
-                 slidy/graphics/fold.gif,
-                 slidy/graphics/unfold.gif,
-                 slidy/graphics/nofold-dim.gif,
-                 slidy/graphics/unfold-dim.gif,
-                 slidy/graphics/fold-dim.gif,
+                 data/slidy/styles/slidy.css,
+                 data/slidy/scripts/slidy.js.gz,
+                 data/slidy/graphics/fold.gif,
+                 data/slidy/graphics/unfold.gif,
+                 data/slidy/graphics/nofold-dim.gif,
+                 data/slidy/graphics/unfold-dim.gif,
+                 data/slidy/graphics/fold-dim.gif,
                  -- data for slideous writer
-                 slideous/slideous.css,
-                 slideous/slideous.js,
+                 data/slideous/slideous.css,
+                 data/slideous/slideous.js,
                  -- data for dzslides writer
-                 dzslides/template.html,
+                 data/dzslides/template.html,
                  -- data for citeproc
-                 default.csl,
+                 data/default.csl,
                  -- documentation
                  README, INSTALL, COPYRIGHT, BUGS, changelog
 Extra-Source-Files:
@@ -95,8 +99,6 @@ Extra-Source-Files:
                  -- generated man pages (produced post-build)
                  man/man1/pandoc.1,
                  man/man5/pandoc_markdown.5,
-                 -- benchmarks
-                 Benchmark.hs,
                  -- tests
                  tests/bodybg.gif,
                  tests/docbook-reader.docbook
@@ -121,6 +123,8 @@ Extra-Source-Files:
                  tests/markdown-citations.mhra.txt,
                  tests/markdown-citations.ieee.txt,
                  tests/textile-reader.textile,
+                 tests/mediawiki-reader.wiki,
+                 tests/mediawiki-reader.native,
                  tests/rst-reader.native,
                  tests/rst-reader.rst,
                  tests/s5.basic.html,
@@ -146,6 +150,7 @@ Extra-Source-Files:
                  tests/tables.rtf,
                  tests/tables.txt,
                  tests/tables-rstsubset.native,
+                 tests/tables.fb2,
                  tests/testsuite.native,
                  tests/testsuite.txt,
                  tests/writer.latex,
@@ -164,7 +169,9 @@ Extra-Source-Files:
                  tests/writer.rst,
                  tests/writer.rtf,
                  tests/writer.texinfo,
+                 tests/writer.fb2,
                  tests/lhs-test.native,
+                 tests/lhs-test-markdown.native,
                  tests/lhs-test.markdown,
                  tests/lhs-test.markdown+lhs,
                  tests/lhs-test.rst,
@@ -173,7 +180,21 @@ Extra-Source-Files:
                  tests/lhs-test.latex+lhs,
                  tests/lhs-test.html,
                  tests/lhs-test.html+lhs,
-                 tests/lhs-test.fragment.html+lhs
+                 tests/lhs-test.fragment.html+lhs,
+                 tests/pipe-tables.txt,
+                 tests/pipe-tables.native,
+                 tests/fb2.basic.markdown,
+                 tests/fb2.basic.fb2,
+                 tests/fb2.titles.markdown,
+                 tests/fb2.titles.fb2,
+                 tests/fb2.images.markdown,
+                 tests/fb2.images.fb2,
+                 tests/fb2.images-embedded.html,
+                 tests/fb2.images-embedded.fb2,
+                 tests/fb2.math.markdown,
+                 tests/fb2.math.fb2,
+                 tests/fb2.test-small.png,
+                 tests/fb2.test.jpg
 Extra-Tmp-Files: man/man1/pandoc.1,
                  man/man5/pandoc_markdown.5
 
@@ -181,63 +202,60 @@ Source-repository head
   type:          git
   location:      git://github.com/jgm/pandoc.git
 
-Flag executable
-  Description:   Build the pandoc executable.
-  Default:       True
-Flag library
-  Description:   Build the pandoc library.
-  Default:       True
 Flag blaze_html_0_5
-  Description:   Use blaze-html 0.5 and blaze-markup 0.5
+  Description:   Use blaze-html >= 0.5 and blaze-markup >= 0.5
+  Default:       True
+Flag embed_data_files
+  Description:   Embed data files in binary for relocatable executable.
   Default:       False
 
 Library
-  -- Note: the following is duplicated in all stanzas.
-  -- It needs to be duplicated because of the library & executable flags.
-  -- BEGIN DUPLICATED SECTION
-  Build-Depends: containers >= 0.1 && < 0.6,
+  Build-Depends: base >= 4.2 && <5,
+                 syb >= 0.1 && < 0.5,
+                 containers >= 0.1 && < 0.6,
                  parsec >= 3.1 && < 3.2,
                  mtl >= 1.1 && < 2.2,
                  network >= 2 && < 2.5,
                  filepath >= 1.1 && < 1.4,
                  process >= 1 && < 1.2,
                  directory >= 1 && < 1.3,
-                 bytestring >= 0.9 && < 1.0,
-                 zip-archive >= 0.1.1.7 && < 0.2,
-                 utf8-string >= 0.3 && < 0.4,
+                 bytestring >= 0.9 && < 0.11,
+                 text >= 0.11 && < 0.12,
+                 zip-archive >= 0.1.3.3 && < 0.2,
                  old-locale >= 1 && < 1.1,
                  time >= 1.2 && < 1.5,
                  HTTP >= 4000.0.5 && < 4000.3,
-                 texmath >= 0.6.0.2 && < 0.7,
+                 texmath >= 0.6.1.3 && < 0.7,
                  xml >= 1.3.12 && < 1.4,
                  random >= 1 && < 1.1,
                  extensible-exceptions >= 0.1 && < 0.2,
-                 citeproc-hs >= 0.3.4 && < 0.4,
-                 pandoc-types >= 1.9.0.2 && < 1.10,
+                 citeproc-hs >= 0.3.7 && < 0.4,
+                 pandoc-types >= 1.10 && < 1.11,
                  json >= 0.4 && < 0.8,
                  tagsoup >= 0.12.5 && < 0.13,
                  base64-bytestring >= 0.1 && < 1.1,
                  zlib >= 0.5 && < 0.6,
-                 highlighting-kate >= 0.5.1 && < 0.6,
+                 highlighting-kate >= 0.5.3.7 && < 0.6,
+                 data-default >= 0.4 && < 0.6,
                  temporary >= 1.1 && < 1.2
   if flag(blaze_html_0_5)
     build-depends:
-                 blaze-html >= 0.5 && < 0.6,
+                 blaze-html >= 0.5 && < 0.7,
                  blaze-markup >= 0.5.1 && < 0.6
   else
     build-depends:
                  blaze-html >= 0.4.3.0 && < 0.5
-  if impl(ghc >= 6.10)
-    Build-depends: base >= 4 && < 5, syb >= 0.1 && < 0.4
-  else
-    Build-depends: base >= 3 && < 4
+  if flag(embed_data_files)
+     cpp-options:   -DEMBED_DATA_FILES
+     -- build-tools:   hsb2hs
+     other-modules: Text.Pandoc.Data
   if impl(ghc >= 7.0.1)
-    Ghc-Options:   -O2 -rtsopts -Wall -fno-warn-unused-do-bind -dno-debug-output
+    Ghc-Options:   -rtsopts -Wall -fno-warn-unused-do-bind
   else
     if impl(ghc >= 6.12)
-      Ghc-Options:   -O2 -Wall -fno-warn-unused-do-bind -dno-debug-output
+      Ghc-Options:   -Wall -fno-warn-unused-do-bind
     else
-      Ghc-Options:   -O2 -Wall
+      Ghc-Options:   -Wall
   if impl(ghc >= 7.0.1)
     Ghc-Prof-Options: -auto-all -caf-all -rtsopts
   else
@@ -249,16 +267,15 @@ Library
                       RelaxedPolyRec, DeriveDataTypeable, TypeSynonymInstances,
                       FlexibleInstances
   Hs-Source-Dirs:  src
-  -- END DUPLICATED SECTION
 
   Exposed-Modules: Text.Pandoc,
+                   Text.Pandoc.Options,
                    Text.Pandoc.Pretty,
                    Text.Pandoc.Shared,
-                   Text.Pandoc.Parsing,
-                   Text.Pandoc.Highlighting,
                    Text.Pandoc.Readers.HTML,
                    Text.Pandoc.Readers.LaTeX,
                    Text.Pandoc.Readers.Markdown,
+                   Text.Pandoc.Readers.MediaWiki,
                    Text.Pandoc.Readers.RST,
                    Text.Pandoc.Readers.DocBook,
                    Text.Pandoc.Readers.TeXMath,
@@ -282,98 +299,65 @@ Library
                    Text.Pandoc.Writers.ODT,
                    Text.Pandoc.Writers.Docx,
                    Text.Pandoc.Writers.EPUB,
+                   Text.Pandoc.Writers.FB2,
                    Text.Pandoc.PDF,
-                   Text.Pandoc.Templates,
-                   Text.Pandoc.Biblio,
                    Text.Pandoc.UTF8,
+                   Text.Pandoc.Templates,
+                   Text.Pandoc.XML,
+                   Text.Pandoc.Biblio,
                    Text.Pandoc.SelfContained
-  Other-Modules:   Text.Pandoc.XML,
-                   Text.Pandoc.MIME,
+  Other-Modules:   Text.Pandoc.MIME,
+                   Text.Pandoc.Parsing,
                    Text.Pandoc.UUID,
                    Text.Pandoc.ImageSize,
                    Text.Pandoc.Slides,
+                   Text.Pandoc.Highlighting,
                    Paths_pandoc
 
-  if flag(library)
-    Buildable:      True
-  else
-    Buildable:      False
+  Buildable:       True
 
 Executable pandoc
-  -- Note: the following is duplicated in all stanzas.
-  -- It needs to be duplicated because of the library & executable flags.
-  -- BEGIN DUPLICATED SECTION
-  Build-Depends: containers >= 0.1 && < 0.6,
-                 parsec >= 3.1 && < 3.2,
-                 mtl >= 1.1 && < 2.2,
-                 network >= 2 && < 2.5,
-                 filepath >= 1.1 && < 1.4,
-                 process >= 1 && < 1.2,
+  Build-Depends: pandoc,
+                 base >= 4.2 && <5,
                  directory >= 1 && < 1.3,
-                 bytestring >= 0.9 && < 1.0,
-                 zip-archive >= 0.1.1.7 && < 0.2,
-                 utf8-string >= 0.3 && < 0.4,
-                 old-locale >= 1 && < 1.1,
-                 time >= 1.2 && < 1.5,
-                 HTTP >= 4000.0.5 && < 4000.3,
-                 texmath >= 0.6.0.2 && < 0.7,
-                 xml >= 1.3.12 && < 1.4,
-                 random >= 1 && < 1.1,
+                 filepath >= 1.1 && < 1.4,
+                 network >= 2 && < 2.5,
+                 text >= 0.11 && < 0.12,
+                 bytestring >= 0.9 && < 0.11,
                  extensible-exceptions >= 0.1 && < 0.2,
-                 citeproc-hs >= 0.3.4 && < 0.4,
-                 pandoc-types >= 1.9.0.2 && < 1.10,
-                 json >= 0.4 && < 0.8,
-                 tagsoup >= 0.12.5 && < 0.13,
-                 base64-bytestring >= 0.1 && < 1.1,
-                 zlib >= 0.5 && < 0.6,
-                 highlighting-kate >= 0.5.1 && < 0.6,
-                 temporary >= 1.1 && < 1.2
-  if flag(blaze_html_0_5)
-    build-depends:
-                 blaze-html >= 0.5 && < 0.6,
-                 blaze-markup >= 0.5.1 && < 0.6
-  else
-    build-depends:
-                 blaze-html >= 0.4.3.0 && < 0.5
-  if impl(ghc >= 6.10)
-    Build-depends: base >= 4 && < 5, syb >= 0.1 && < 0.4
-  else
-    Build-depends: base >= 3 && < 4
+                 highlighting-kate >= 0.5.3.7 && < 0.6,
+                 HTTP >= 4000.0.5 && < 4000.3,
+                 citeproc-hs >= 0.3.7 && < 0.4
   if impl(ghc >= 7.0.1)
-    Ghc-Options:   -O2 -rtsopts -threaded -Wall -fno-warn-unused-do-bind -dno-debug-output
+    Ghc-Options:   -rtsopts -Wall -fno-warn-unused-do-bind
   else
     if impl(ghc >= 6.12)
-      Ghc-Options:   -O2 -Wall -threaded -fno-warn-unused-do-bind -dno-debug-output
+      Ghc-Options:  -Wall -fno-warn-unused-do-bind
     else
-      Ghc-Options:   -O2 -Wall -threaded
+      Ghc-Options:  -Wall
   if impl(ghc >= 7.0.1)
     Ghc-Prof-Options: -auto-all -caf-all -rtsopts
   else
     Ghc-Prof-Options: -auto-all -caf-all
   Default-Language: Haskell98
   Default-Extensions: CPP
-  Other-Extensions:   PatternGuards, OverloadedStrings,
-                      ScopedTypeVariables, GeneralizedNewtypeDeriving,
-                      RelaxedPolyRec, DeriveDataTypeable, TypeSynonymInstances,
-                      FlexibleInstances
-  Hs-Source-Dirs:  src
-  -- END DUPLICATED SECTION
-
-  Main-Is:            pandoc.hs
-  if flag(executable)
-    Buildable:        True
-  else
-    Buildable:        False
+  Other-Extensions: PatternGuards, OverloadedStrings,
+                    ScopedTypeVariables, GeneralizedNewtypeDeriving,
+                    RelaxedPolyRec, DeriveDataTypeable, TypeSynonymInstances,
+                    FlexibleInstances
+  Hs-Source-Dirs:  .
+  Main-Is:         pandoc.hs
+  Buildable:       True
 
 -- NOTE:  A trick in Setup.hs makes sure this won't be installed:
 Executable make-pandoc-man-pages
-  Main-Is:      make-pandoc-man-pages.hs
+  Main-Is:       make-pandoc-man-pages.hs
   Hs-Source-Dirs: man
-  Build-Depends: base >= 4.2 && < 5,
-                 pandoc,
+  Build-Depends: pandoc,
+                 base >= 4.2 && < 5,
                  directory >= 1 && < 1.3,
                  filepath >= 1.1 && < 1.4,
-                 old-time >= 1.1 && < 1.2,
+                 old-time >= 1.0 && < 1.2,
                  time >= 1.2 && < 1.5
   Default-Language: Haskell98
   Default-Extensions: CPP
@@ -382,54 +366,64 @@ Test-Suite test-pandoc
   Type:           exitcode-stdio-1.0
   Main-Is:        test-pandoc.hs
   Hs-Source-Dirs: tests
-  if impl(ghc >= 6.10)
-    Build-depends: base >= 4 && < 5, syb >= 0.1 && < 0.4
-  else
-    Build-depends: base >= 3 && < 4
+  Build-Depends:  base >= 4.2 && < 5,
+                  syb >= 0.1 && < 0.5,
+                  pandoc,
+                  pandoc-types >= 1.10 && < 1.11,
+                  bytestring >= 0.9 && < 0.11,
+                  text >= 0.11 && < 0.12,
+                  directory >= 1 && < 1.3,
+                  filepath >= 1.1 && < 1.4,
+                  process >= 1 && < 1.2,
+                 highlighting-kate >= 0.5.3.7 && < 0.6,
+                  Diff >= 0.2 && < 0.4,
+                  test-framework >= 0.3 && < 0.9,
+                  test-framework-hunit >= 0.2 && < 0.4,
+                  test-framework-quickcheck2 >= 0.2.9 && < 0.4,
+                  QuickCheck >= 2.4 && < 2.7,
+                  HUnit >= 1.2 && < 1.3,
+                  containers >= 0.1 && < 0.6,
+                  ansi-terminal >= 0.5 && < 0.7
+  Other-Modules:  Tests.Old
+                  Tests.Helpers
+                  Tests.Arbitrary
+                  Tests.Shared
+                  Tests.Readers.LaTeX
+                  Tests.Readers.Markdown
+                  Tests.Readers.RST
+                  Tests.Writers.Native
+                  Tests.Writers.ConTeXt
+                  Tests.Writers.HTML
+                  Tests.Writers.Markdown
+                  Tests.Writers.LaTeX
   if impl(ghc >= 7.0.1)
-    Ghc-Options:   -O2 -rtsopts -threaded -Wall -fno-warn-unused-do-bind -dno-debug-output
+    Ghc-Options:  -rtsopts -Wall -fno-warn-unused-do-bind
   else
     if impl(ghc >= 6.12)
-      Ghc-Options:   -O2 -Wall -threaded -fno-warn-unused-do-bind -dno-debug-output
+      Ghc-Options: -Wall -fno-warn-unused-do-bind
     else
-      Ghc-Options:   -O2 -Wall -threaded
-  if impl(ghc >= 7.0.1)
-    Ghc-Prof-Options: -auto-all -caf-all -rtsopts
+      Ghc-Options: -Wall
+  if impl(ghc >= 7)
+    cpp-options:   -D_LIT=lit
   else
-    Ghc-Prof-Options: -auto-all -caf-all
+    cpp-options:   -D_LIT=$lit
   Default-Language: Haskell98
   Default-Extensions: CPP
-  Other-Extensions:   PatternGuards, OverloadedStrings,
-                      ScopedTypeVariables, GeneralizedNewtypeDeriving,
-                      RelaxedPolyRec, DeriveDataTypeable, TypeSynonymInstances,
-                      FlexibleInstances
-  if impl(ghc >= 7)
-    cpp-options:    -D_LIT=lit
+
+benchmark benchmark-pandoc
+  Type:            exitcode-stdio-1.0
+  Main-Is:         benchmark-pandoc.hs
+  Hs-Source-Dirs:  benchmark
+  Build-Depends:   pandoc,
+                   base >= 4.2 && < 5,
+                   syb >= 0.1 && < 0.5,
+                   criterion >= 0.5 && < 0.7,
+                   json >= 0.4 && < 0.8
+  if impl(ghc >= 7.0.1)
+    Ghc-Options:   -rtsopts -Wall -fno-warn-unused-do-bind
   else
-    cpp-options:    -D_LIT=$lit
-  Other-Extensions: TemplateHaskell, QuasiQuotes
-  Build-Depends:    pandoc, Diff, test-framework >= 0.3 && < 0.7,
-                    pandoc-types >= 1.9.0.2 && < 1.10,
-                    test-framework-hunit >= 0.2 && < 0.3,
-                    test-framework-quickcheck2 >= 0.2.9 && < 0.3,
-                    process >= 1 && < 1.2,
-                    filepath >= 1.1 && < 1.4,
-                    directory >= 1 && < 1.3,
-                    bytestring >= 0.9 && < 1.0,
-                    utf8-string >= 0.3 && < 0.4,
-                    QuickCheck >= 2.4 && < 2.6,
-                    HUnit >= 1.2 && < 1.3,
-                    template-haskell >= 2.4 && < 2.9,
-                    ansi-terminal == 0.5.*
-  Other-Modules:    Tests.Old
-                    Tests.Helpers
-                    Tests.Arbitrary
-                    Tests.Shared
-                    Tests.Readers.LaTeX
-                    Tests.Readers.Markdown
-                    Tests.Readers.RST
-                    Tests.Writers.Native
-                    Tests.Writers.ConTeXt
-                    Tests.Writers.HTML
-                    Tests.Writers.Markdown
-                    Tests.Writers.LaTeX
+    if impl(ghc >= 6.12)
+      Ghc-Options:   -Wall -fno-warn-unused-do-bind
+    else
+      Ghc-Options:   -Wall
+  Default-Language: Haskell98

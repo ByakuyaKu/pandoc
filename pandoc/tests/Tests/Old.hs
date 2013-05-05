@@ -10,23 +10,24 @@ import System.FilePath ( (</>), (<.>) )
 import System.Directory
 import System.Exit
 import Data.Algorithm.Diff
-import Text.Pandoc.Shared ( normalize, defaultWriterOptions )
+import Text.Pandoc.Shared ( normalize )
+import Text.Pandoc.Options
 import Text.Pandoc.Writers.Native ( writeNative )
 import Text.Pandoc.Readers.Native ( readNative )
 import Prelude hiding ( readFile )
 import qualified Data.ByteString.Lazy as B
-import Data.ByteString.Lazy.UTF8 (toString)
+import Text.Pandoc.UTF8 (toStringLazy)
 import Text.Printf
 
 readFileUTF8 :: FilePath -> IO String
-readFileUTF8 f = B.readFile f >>= return . toString
+readFileUTF8 f = B.readFile f >>= return . toStringLazy
 
 pandocPath :: FilePath
 pandocPath = ".." </> "dist" </> "build" </> "pandoc" </> "pandoc"
 
 data TestResult = TestPassed
                 | TestError ExitCode
-                | TestFailed String FilePath [(DI, String)]
+                | TestFailed String FilePath [Diff String]
      deriving (Eq)
 
 instance Show TestResult where
@@ -38,13 +39,13 @@ instance Show TestResult where
                                  dash
     where dash = replicate 72 '-'
 
-showDiff :: (Int,Int) -> [(DI, String)] -> String
+showDiff :: (Int,Int) -> [Diff String] -> String
 showDiff _ []             = ""
-showDiff (l,r) ((F, ln) : ds) =
+showDiff (l,r) (First ln : ds) =
   printf "+%4d " l ++ ln ++ "\n" ++ showDiff (l+1,r) ds
-showDiff (l,r) ((S, ln) : ds) =
+showDiff (l,r) (Second ln : ds) =
   printf "-%4d " r ++ ln ++ "\n" ++ showDiff (l,r+1) ds
-showDiff (l,r) ((B, _ ) : ds) =
+showDiff (l,r) (Both _ _ : ds) =
   showDiff (l+1,r+1) ds
 
 tests :: [Test]
@@ -56,6 +57,8 @@ tests = [ testGroup "markdown"
               "testsuite.txt" "testsuite.native"
             , test "tables" ["-r", "markdown", "-w", "native", "--columns=80"]
               "tables.txt" "tables.native"
+            , test "pipe tables" ["-r", "markdown", "-w", "native", "--columns=80"]
+              "pipe-tables.txt" "pipe-tables.native"
             , test "more" ["-r", "markdown", "-w", "native", "-S"]
               "markdown-reader-more.txt" "markdown-reader-more.native"
             , lhsReaderTest "markdown+lhs"
@@ -107,9 +110,23 @@ tests = [ testGroup "markdown"
           , test "reader" ["-r", "native", "-w", "native", "-s"]
             "testsuite.native" "testsuite.native"
           ]
+        , testGroup "fb2"
+          [ fb2WriterTest "basic" [] "fb2.basic.markdown" "fb2.basic.fb2"
+          , fb2WriterTest "titles" [] "fb2.titles.markdown" "fb2.titles.fb2"
+          , fb2WriterTest "images" [] "fb2.images.markdown" "fb2.images.fb2"
+          , fb2WriterTest "images-embedded" [] "fb2.images-embedded.html" "fb2.images-embedded.fb2"
+          , fb2WriterTest "tables" [] "tables.native" "tables.fb2"
+          , fb2WriterTest "math" [] "fb2.math.markdown" "fb2.math.fb2"
+          , fb2WriterTest "testsuite" [] "testsuite.native" "writer.fb2"
+          ]
+        , testGroup "mediawiki"
+          [ testGroup "writer" $ writerTests "mediawiki"
+          , test "reader" ["-r", "mediawiki", "-w", "native", "-s"]
+            "mediawiki-reader.wiki" "mediawiki-reader.native"
+          ]
         , testGroup "other writers" $ map (\f -> testGroup f $ writerTests f)
           [ "opendocument" , "context" , "texinfo"
-          , "man" , "plain" , "mediawiki", "rtf", "org", "asciidoc"
+          , "man" , "plain" , "rtf", "org", "asciidoc"
           ]
         ]
 
@@ -130,8 +147,11 @@ lhsWriterTests format
 lhsReaderTest :: String -> Test
 lhsReaderTest format =
   testWithNormalize normalizer "lhs" ["-r", format, "-w", "native"]
-    ("lhs-test" <.> format) "lhs-test.native"
-   where normalizer = writeNative defaultWriterOptions . normalize . readNative
+    ("lhs-test" <.> format) norm
+   where normalizer = writeNative def . normalize . readNative
+         norm = if format == "markdown+lhs"
+                   then "lhs-test-markdown.native"
+                   else "lhs-test.native"
 
 writerTests :: String -> [Test]
 writerTests format
@@ -142,20 +162,33 @@ writerTests format
     opts = ["-r", "native", "-w", format, "--columns=78"]
 
 s5WriterTest :: String -> [String] -> String -> Test
-s5WriterTest modifier opts format 
+s5WriterTest modifier opts format
   = test (format ++ " writer (" ++ modifier ++ ")")
-    (["-r", "native", "-w", format] ++ opts) 
+    (["-r", "native", "-w", format] ++ opts)
     "s5.native"  ("s5." ++ modifier <.> "html")
+
+fb2WriterTest :: String -> [String] -> String -> String -> Test
+fb2WriterTest title opts inputfile normfile =
+  testWithNormalize (ignoreBinary . formatXML)
+                    title (["-t", "fb2"]++opts) inputfile normfile
+  where
+    formatXML xml = splitTags $ zip xml (drop 1 xml)
+    splitTags [] = []
+    splitTags [end] = fst end : snd end : []
+    splitTags (('>','<'):rest) = ">\n" ++ splitTags rest
+    splitTags ((c,_):rest) = c : splitTags rest
+    ignoreBinary = unlines . filter (not . startsWith "<binary ") . lines
+    startsWith tag str = all (uncurry (==)) $ zip tag str
 
 markdownCitationTests :: [Test]
 markdownCitationTests
-  =  map styleToTest ["chicago-author-date","ieee","mhra"] 
+  =  map styleToTest ["chicago-author-date","ieee","mhra"]
      ++ [test "natbib" wopts "markdown-citations.txt"
          "markdown-citations.txt"]
   where
     ropts             = ["-r", "markdown", "-w", "markdown", "--bibliography",
                          "biblio.bib", "--no-wrap"]
-    wopts             = ropts ++ ["--natbib"]
+    wopts             = ["-r", "markdown", "-w", "markdown", "--no-wrap", "--natbib"]
     styleToTest style = test style (ropts ++ ["--csl", style ++ ".csl"])
                         "markdown-citations.txt"
                         ("markdown-citations." ++ style ++ ".txt")
@@ -179,10 +212,10 @@ testWithNormalize normalizer testname opts inp norm = testCase testname $ do
   (outputPath, hOut) <- openTempFile "" "pandoc-test"
   let inpPath = inp
   let normPath = norm
-  let options = ["--data-dir", ".."] ++ [inpPath] ++ opts
+  let options = ["--data-dir", ".." </> "data"] ++ [inpPath] ++ opts
   let cmd = pandocPath ++ " " ++ unwords options
   ph <- runProcess pandocPath options Nothing
-        (Just [("LANG","en_US.UTF-8"),("HOME", "./")]) Nothing (Just hOut)
+        (Just [("TMP","."),("LANG","en_US.UTF-8"),("HOME", "./")]) Nothing (Just hOut)
         (Just stderr)
   ec <- waitForProcess ph
   result  <- if ec == ExitSuccess

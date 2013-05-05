@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, QuasiQuotes #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Tests.Readers.RST (tests) where
 
 import Text.Pandoc.Definition
@@ -9,7 +9,7 @@ import Text.Pandoc.Builder
 import Text.Pandoc
 
 rst :: String -> Pandoc
-rst = readRST defaultParserState{ stateStandalone = True }
+rst = readRST def
 
 infix 4 =:
 (=:) :: ToString c
@@ -18,26 +18,25 @@ infix 4 =:
 
 tests :: [Test]
 tests = [ "line block with blank line" =:
-          "| a\n|\n|  b" =?> para (str "a" <> linebreak <>
-                                   linebreak <> str " " <> str "b")
-        , "field list" =:
-          [_LIT|
-:Hostname: media08
-:IP address: 10.0.0.19
-:Size: 3ru
-:Date: 2001-08-16
-:Version: 1
-:Authors: - Me
-              - Myself
-              - I
-:Indentation: Since the field marker may be quite long, the second
-   and subsequent lines of the field body do not have to line up
-   with the first line, but they must be indented relative to the
-   field name marker, and they must line up with each other.
-:Parameter i: integer
-:Final: item
-  on two lines
-|]         =?> ( setAuthors ["Me","Myself","I"]
+          "| a\n|\n|  b" =?> para (str "a") <>
+                             para (str "\160b")
+        , "field list" =: unlines
+             [ ":Hostname: media08"
+             , ":IP address: 10.0.0.19"
+             , ":Size: 3ru"
+             , ":Date: 2001-08-16"
+             , ":Version: 1"
+             , ":Authors: - Me"
+             , "              - Myself"
+             , "              - I"
+             , ":Indentation: Since the field marker may be quite long, the second"
+             , "   and subsequent lines of the field body do not have to line up"
+             , "   with the first line, but they must be indented relative to the"
+             , "   field name marker, and they must line up with each other."
+             , ":Parameter i: integer"
+             , ":Final: item"
+             , "  on two lines" ]
+           =?> ( setAuthors ["Me","Myself","I"]
                $ setDate "2001-08-16"
                $ doc
                $ definitionList [ (str "Hostname", [para "media08"])

@@ -18,9 +18,9 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 -}
 
 {- |
-   Module      : Text.Pandoc.Writers.RST 
+   Module      : Text.Pandoc.Writers.RST
    Copyright   : Copyright (C) 2006-2010 John MacFarlane
-   License     : GNU GPL, version 2 or above 
+   License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
    Stability   : alpha
@@ -32,7 +32,8 @@ reStructuredText:  <http://docutils.sourceforge.net/rst.html>
 -}
 module Text.Pandoc.Writers.RST ( writeRST) where
 import Text.Pandoc.Definition
-import Text.Pandoc.Shared 
+import Text.Pandoc.Options
+import Text.Pandoc.Shared
 import Text.Pandoc.Templates (renderTemplate)
 import Data.List ( isPrefixOf, intersperse, transpose )
 import Text.Pandoc.Pretty
@@ -42,17 +43,17 @@ import Data.Char (isSpace)
 
 type Refs = [([Inline], Target)]
 
-data WriterState = 
+data WriterState =
   WriterState { stNotes     :: [[Block]]
               , stLinks     :: Refs
-              , stImages    :: Refs
+              , stImages    :: [([Inline], (String, String, Maybe String))]
               , stHasMath   :: Bool
               , stOptions   :: WriterOptions
               }
 
 -- | Convert Pandoc to RST.
 writeRST :: WriterOptions -> Pandoc -> String
-writeRST opts document = 
+writeRST opts document =
   let st = WriterState { stNotes = [], stLinks = [],
                          stImages = [], stHasMath = False,
                          stOptions = opts }
@@ -78,7 +79,9 @@ pandocToRST (Pandoc (Meta tit auth dat) blocks) = do
   let context = writerVariables opts ++
                 [ ("body", main)
                 , ("title", render Nothing title)
-                , ("date", render colwidth date) ] ++
+                , ("date", render colwidth date)
+                , ("toc", if writerTableOfContents opts then "yes" else "")
+                , ("toc-depth", show (writerTOCDepth opts)) ] ++
                 [ ("math", "yes") | hasMath ] ++
                 [ ("author", render colwidth a) | a <- authors ]
   if writerStandalone opts
@@ -89,8 +92,8 @@ pandocToRST (Pandoc (Meta tit auth dat) blocks) = do
 refsToRST :: Refs -> State WriterState Doc
 refsToRST refs = mapM keyToRST refs >>= return . vcat
 
--- | Return RST representation of a reference key. 
-keyToRST :: ([Inline], (String, String)) 
+-- | Return RST representation of a reference key.
+keyToRST :: ([Inline], (String, String))
          -> State WriterState Doc
 keyToRST (label, (src, _)) = do
   label' <- inlineListToRST label
@@ -101,7 +104,7 @@ keyToRST (label, (src, _)) = do
 
 -- | Return RST representation of notes.
 notesToRST :: [[Block]] -> State WriterState Doc
-notesToRST notes = 
+notesToRST notes =
   mapM (\(num, note) -> noteToRST num note) (zip [1..] notes) >>=
   return . vsep
 
@@ -110,18 +113,23 @@ noteToRST :: Int -> [Block] -> State WriterState Doc
 noteToRST num note = do
   contents <- blockListToRST note
   let marker = ".. [" <> text (show num) <> "]"
-  return $ marker $$ nest 3 contents
+  return $ nowrap $ marker $$ nest 3 contents
 
 -- | Return RST representation of picture reference table.
-pictRefsToRST :: Refs -> State WriterState Doc
+pictRefsToRST :: [([Inline], (String, String, Maybe String))]
+              -> State WriterState Doc
 pictRefsToRST refs = mapM pictToRST refs >>= return . vcat
 
--- | Return RST representation of a picture substitution reference. 
-pictToRST :: ([Inline], (String, String)) 
+-- | Return RST representation of a picture substitution reference.
+pictToRST :: ([Inline], (String, String,Maybe String))
           -> State WriterState Doc
-pictToRST (label, (src, _)) = do
+pictToRST (label, (src, _, mbtarget)) = do
   label' <- inlineListToRST label
-  return $ ".. |" <> label' <> "| image:: " <> text src
+  return $ nowrap
+         $ ".. |" <> label' <> "| image:: " <> text src
+         $$ case mbtarget of
+                 Nothing -> empty
+                 Just t  -> "   :target: " <> text t
 
 -- | Escape special characters for RST.
 escapeString :: String -> String
@@ -135,40 +143,53 @@ titleToRST lst = do
   let border = text (replicate titleLength '=')
   return $ border $$ contents $$ border
 
--- | Convert Pandoc block element to RST. 
+-- | Convert Pandoc block element to RST.
 blockToRST :: Block         -- ^ Block element
-           -> State WriterState Doc 
+           -> State WriterState Doc
 blockToRST Null = return empty
 blockToRST (Plain inlines) = inlineListToRST inlines
-blockToRST (Para [Image txt (src,tit)]) = do
+-- title beginning with fig: indicates that the image is a figure
+blockToRST (Para [Image txt (src,'f':'i':'g':':':tit)]) = do
   capt <- inlineListToRST txt
   let fig = "figure:: " <> text src
-  let align = ":align: center"
   let alt = ":alt: " <> if null tit then capt else text tit
-  return $ hang 3 ".. " $ fig $$ align $$ alt $+$ capt $$ blankline
-blockToRST (Para inlines) = do
-  contents <- inlineListToRST inlines
-  return $ contents <> blankline
+  return $ hang 3 ".. " $ fig $$ alt $+$ capt $$ blankline
+blockToRST (Para inlines)
+  | LineBreak `elem` inlines = do -- use line block if LineBreaks 
+      lns <- mapM inlineListToRST $ splitBy (==LineBreak) inlines
+      return $ (vcat $ map (text "| " <>) lns) <> blankline
+  | otherwise = do
+      contents <- inlineListToRST inlines
+      return $ contents <> blankline
 blockToRST (RawBlock f str) =
   return $ blankline <> ".. raw:: " <> text f $+$
            (nest 3 $ text str) $$ blankline
 blockToRST HorizontalRule =
   return $ blankline $$ "--------------" $$ blankline
-blockToRST (Header level inlines) = do
+blockToRST (Header level _ inlines) = do
   contents <- inlineListToRST inlines
   let headerChar = if level > 5 then ' ' else "=-~^'" !! (level - 1)
   let border = text $ replicate (offset contents) headerChar
   return $ nowrap $ contents $$ border $$ blankline
-blockToRST (CodeBlock (_,classes,_) str) = do
+blockToRST (CodeBlock (_,classes,kvs) str) = do
   opts <- stOptions <$> get
   let tabstop = writerTabStop opts
+  let startnum = maybe "" (\x -> " " <> text x) $ lookup "startFrom" kvs
+  let numberlines = if "numberLines" `elem` classes
+                       then "   :number-lines:" <> startnum
+                       else empty
   if "haskell" `elem` classes && "literate" `elem` classes &&
-                  writerLiterateHaskell opts
+                  isEnabled Ext_literate_haskell opts
      then return $ prefixed "> " (text str) $$ blankline
-     else return $ "::" $+$ nest tabstop (text str) $$ blankline
+     else return $
+          (case [c | c <- classes,
+                     c `notElem` ["sourceCode","literate","numberLines"]] of
+             []       -> "::"
+             (lang:_) -> (".. code:: " <> text lang) $$ numberlines)
+          $+$ nest tabstop (text str) $$ blankline
 blockToRST (BlockQuote blocks) = do
   tabstop <- get >>= (return . writerTabStop . stOptions)
-  contents <- blockListToRST blocks 
+  contents <- blockListToRST blocks
   return $ (nest tabstop contents) <> blankline
 blockToRST (Table caption _ widths headers rows) =  do
   caption' <- inlineListToRST caption
@@ -184,7 +205,7 @@ blockToRST (Table caption _ widths headers rows) =  do
        if isSimple
           then map ((+2) . numChars) $ transpose (headers' : rawRows)
           else map (floor . (fromIntegral (writerColumns opts) *)) widths
-  let hpipeBlocks blocks = hcat [beg, middle, end] 
+  let hpipeBlocks blocks = hcat [beg, middle, end]
         where h      = maximum (map height blocks)
               sep'   = lblock 3 $ vcat (map text $ replicate h " | ")
               beg    = lblock 2 $ vcat (map text $ replicate h "| ")
@@ -195,7 +216,7 @@ blockToRST (Table caption _ widths headers rows) =  do
   rows' <- mapM (\row -> do cols <- mapM blockListToRST row
                             return $ makeRow cols) rows
   let border ch = char '+' <> char ch <>
-                  (hcat $ intersperse (char ch <> char '+' <> char ch) $ 
+                  (hcat $ intersperse (char ch <> char '+' <> char ch) $
                           map (\l -> text $ replicate l ch) widthsInChars) <>
                   char ch <> char '+'
   let body = vcat $ intersperse (border '-') rows'
@@ -208,9 +229,9 @@ blockToRST (BulletList items) = do
   -- ensure that sublists have preceding blank line
   return $ blankline $$ vcat contents $$ blankline
 blockToRST (OrderedList (start, style', delim) items) = do
-  let markers = if start == 1 && style' == DefaultStyle && delim == DefaultDelim 
+  let markers = if start == 1 && style' == DefaultStyle && delim == DefaultDelim
                    then take (length items) $ repeat "#."
-                   else take (length items) $ orderedListMarkers 
+                   else take (length items) $ orderedListMarkers
                                               (start, style', delim)
   let maxMarkerLength = maximum $ map length markers
   let markers' = map (\m -> let s = maxMarkerLength - length m
@@ -249,7 +270,7 @@ definitionListItemToRST (label, defs) = do
 
 -- | Convert list of Pandoc block elements to RST.
 blockListToRST :: [Block]       -- ^ List of block elements
-               -> State WriterState Doc 
+               -> State WriterState Doc
 blockListToRST blocks = mapM blockToRST blocks >>= return . vcat
 
 -- | Convert list of Pandoc inline elements to RST.
@@ -303,19 +324,19 @@ inlineListToRST lst = mapM inlineToRST (insertBS lst) >>= return . hcat
 
 -- | Convert Pandoc inline element to RST.
 inlineToRST :: Inline -> State WriterState Doc
-inlineToRST (Emph lst) = do 
+inlineToRST (Emph lst) = do
   contents <- inlineListToRST lst
   return $ "*" <> contents <> "*"
 inlineToRST (Strong lst) = do
   contents <- inlineListToRST lst
   return $ "**" <> contents <> "**"
-inlineToRST (Strikeout lst) = do 
+inlineToRST (Strikeout lst) = do
   contents <- inlineListToRST lst
   return $ "[STRIKEOUT:" <> contents <> "]"
-inlineToRST (Superscript lst) = do 
+inlineToRST (Superscript lst) = do
   contents <- inlineListToRST lst
   return $ ":sup:`" <> contents <> "`"
-inlineToRST (Subscript lst) = do 
+inlineToRST (Subscript lst) = do
   contents <- inlineListToRST lst
   return $ ":sub:`" <> contents <> "`"
 inlineToRST (SmallCaps lst) = inlineListToRST lst
@@ -339,39 +360,53 @@ inlineToRST (Math t str) = do
                    else blankline $$ (".. math:: " <> text str) $$ blankline
 inlineToRST (RawInline "rst" x) = return $ text x
 inlineToRST (RawInline _ _) = return empty
-inlineToRST (LineBreak) = return cr -- there's no line break in RST
+inlineToRST (LineBreak) = return cr -- there's no line break in RST (see Para)
 inlineToRST Space = return space
-inlineToRST (Link [Code _ str] (src, _)) | src == str ||
-                                           src == "mailto:" ++ str = do
+-- autolink
+inlineToRST (Link [Str str] (src, _))
+  | if "mailto:" `isPrefixOf` src
+    then src == escapeURI ("mailto:" ++ str)
+    else src == escapeURI str = do
   let srcSuffix = if isPrefixOf "mailto:" src then drop 7 src else src
   return $ text srcSuffix
+inlineToRST (Link [Image alt (imgsrc,imgtit)] (src, _tit)) = do
+  label <- registerImage alt (imgsrc,imgtit) (Just src)
+  return $ "|" <> label <> "|"
 inlineToRST (Link txt (src, tit)) = do
   useReferenceLinks <- get >>= return . writerReferenceLinks . stOptions
   linktext <- inlineListToRST $ normalizeSpaces txt
   if useReferenceLinks
     then do refs <- get >>= return . stLinks
-            let refs' = if (txt, (src, tit)) `elem` refs
-                           then refs
-                           else (txt, (src, tit)):refs
-            modify $ \st -> st { stLinks = refs' }
-            return $ "`" <> linktext <> "`_"
-    else return $ "`" <> linktext <> " <" <> text src <> ">`_"
+            case lookup txt refs of
+                 Just (src',tit') ->
+                   if src == src' && tit == tit'
+                      then return $ "`" <> linktext <> "`_"
+                      else do -- duplicate label, use non-reference link
+                        return $ "`" <> linktext <> " <" <> text src <> ">`__"
+                 Nothing -> do
+                   modify $ \st -> st { stLinks = (txt,(src,tit)):refs }
+                   return $ "`" <> linktext <> "`_"
+    else return $ "`" <> linktext <> " <" <> text src <> ">`__"
 inlineToRST (Image alternate (source, tit)) = do
-  pics <- get >>= return . stImages
-  let labelsUsed = map fst pics 
-  let txt = if null alternate || alternate == [Str ""] ||
-               alternate `elem` labelsUsed
-               then [Str $ "image" ++ show (length pics)]
-               else alternate
-  let pics' = if (txt, (source, tit)) `elem` pics
-                 then pics
-                 else (txt, (source, tit)):pics
-  modify $ \st -> st { stImages = pics' }
-  label <- inlineListToRST txt
+  label <- registerImage alternate (source,tit) Nothing
   return $ "|" <> label <> "|"
-inlineToRST (Note contents) = do 
+inlineToRST (Note contents) = do
   -- add to notes in state
   notes <- get >>= return . stNotes
   modify $ \st -> st { stNotes = contents:notes }
   let ref = show $ (length notes) + 1
   return $ " [" <> text ref <> "]_"
+
+registerImage :: [Inline] -> Target -> Maybe String -> State WriterState Doc
+registerImage alt (src,tit) mbtarget = do
+  pics <- get >>= return . stImages
+  txt <- case lookup alt pics of
+               Just (s,t,mbt) | (s,t,mbt) == (src,tit,mbtarget) -> return alt
+               _ -> do
+                 let alt' = if null alt || alt == [Str ""]
+                               then [Str $ "image" ++ show (length pics)]
+                               else alt
+                 modify $ \st -> st { stImages =
+                        (alt', (src,tit, mbtarget)):stImages st }
+                 return alt'
+  inlineListToRST txt

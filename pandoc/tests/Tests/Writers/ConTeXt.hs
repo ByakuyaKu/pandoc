@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, QuasiQuotes #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Tests.Writers.ConTeXt (tests) where
 
 import Test.Framework
@@ -8,11 +8,10 @@ import Tests.Helpers
 import Tests.Arbitrary()
 
 context :: (ToString a, ToPandoc a) => a -> String
-context = writeConTeXt defaultWriterOptions . toPandoc
+context = writeConTeXt def . toPandoc
 
 context' :: (ToString a, ToPandoc a) => a -> String
-context' = writeConTeXt defaultWriterOptions{ writerWrapText = False }
-         . toPandoc
+context' = writeConTeXt def{ writerWrapText = False } . toPandoc
 
 {-
   "my test" =: X =?> Y
@@ -43,28 +42,29 @@ tests = [ testGroup "inline code"
           ]
         , testGroup "headers"
           [ "level 1" =:
-            header 1 "My header" =?> "\\section[my-header]{My header}"
+            headerWith ("my-header",[],[]) 1 "My header" =?> "\\section[my-header]{My header}"
           ]
         , testGroup "bullet lists"
           [ "nested" =:
-            bulletList [plain (text "top")
-                        ,bulletList [plain (text "next")
-                         ,bulletList [plain (text "bot")]]]
-              =?> [_LIT|
-\startitemize
-\item
-  top
-\item
-  \startitemize
-  \item
-    next
-  \item
-    \startitemize
-    \item
-      bot
-    \stopitemize
-  \stopitemize
-\stopitemize|]
+            bulletList [
+               plain (text "top")
+                 <> bulletList [
+                   plain (text "next")
+                    <> bulletList [plain (text "bot")]
+                 ]
+            ] =?> unlines
+                [ "\\startitemize[packed]"
+                , "\\item"
+                , "  top"
+                , "  \\startitemize[packed]"
+                , "  \\item"
+                , "    next"
+                , "    \\startitemize[packed]"
+                , "    \\item"
+                , "      bot"
+                , "    \\stopitemize"
+                , "  \\stopitemize"
+                , "\\stopitemize" ]
           ]
         ]
 

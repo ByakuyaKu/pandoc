@@ -19,7 +19,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 {- |
    Module      : Text.Pandoc.MIME
    Copyright   : Copyright (C) 2011 John MacFarlane
-   License     : GNU GPL, version 2 or above 
+   License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
    Stability   : alpha
@@ -141,6 +141,7 @@ getMimeType f = M.lookup (map toLower $ drop 1 $ takeExtension f) mimeTypes
            ,("embl","chemical/x-embl-dl-nucleotide")
            ,("eml","message/rfc822")
            ,("ent","chemical/x-ncbi-asn1-ascii")
+           ,("eot","application/vnd.ms-fontobject")
            ,("eps","application/postscript")
            ,("etx","text/x-setext")
            ,("exe","application/x-msdos-program")
@@ -155,6 +156,7 @@ getMimeType f = M.lookup (map toLower $ drop 1 $ takeExtension f) mimeTypes
            ,("fm","application/x-maker")
            ,("frame","application/x-maker")
            ,("frm","application/x-maker")
+           ,("fs","text/plain")
            ,("gal","chemical/x-gaussian-log")
            ,("gam","chemical/x-gamess-input")
            ,("gamin","chemical/x-gamess-input")
@@ -442,6 +444,7 @@ getMimeType f = M.lookup (map toLower $ drop 1 $ takeExtension f) mimeTypes
            ,("vms","chemical/x-vamas-iso14976")
            ,("vrm","x-world/x-vrml")
            ,("vrml","model/vrml")
+           ,("vs","text/plain")
            ,("vsd","application/vnd.visio")
            ,("wad","application/x-doom")
            ,("wav","audio/x-wav")
@@ -460,6 +463,7 @@ getMimeType f = M.lookup (map toLower $ drop 1 $ takeExtension f) mimeTypes
            ,("wmv","video/x-ms-wmv")
            ,("wmx","video/x-ms-wmx")
            ,("wmz","application/x-ms-wmz")
+           ,("woff","application/x-font-woff")
            ,("wp5","application/wordperfect5.1")
            ,("wpd","application/wordperfect")
            ,("wrl","model/vrml")

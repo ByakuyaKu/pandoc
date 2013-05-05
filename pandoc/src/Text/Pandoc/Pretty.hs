@@ -20,7 +20,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111(-1)307  USA
 {- |
    Module      : Text.Pandoc.Pretty
    Copyright   : Copyright (C) 2010 John MacFarlane
-   License     : GNU GPL, version 2 or above 
+   License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
    Stability   : alpha
@@ -104,10 +104,7 @@ data D = Text Int String
        deriving (Show)
 
 newtype Doc = Doc { unDoc :: Seq D }
-              deriving (Monoid)
-
-instance Show Doc where
-  show = render Nothing
+              deriving (Monoid, Show)
 
 instance IsString Doc where
   fromString = text
@@ -193,27 +190,28 @@ vsep = foldr ($+$) empty
 chomp :: Doc -> Doc
 chomp d = Doc (fromList dl')
   where dl = toList (unDoc d)
-        dl' = reverse $ dropWhile removeable $ reverse dl
-        removeable BreakingSpace = True
-        removeable CarriageReturn = True
-        removeable NewLine = True
-        removeable BlankLine = True
-        removeable _ = False
+        dl' = reverse $ go $ reverse dl
+        go [] = []
+        go (BreakingSpace : xs) = go xs
+        go (CarriageReturn : xs) = go xs
+        go (NewLine : xs) = go xs
+        go (BlankLine : xs) = go xs
+        go (Prefixed s d' : xs) = Prefixed s (chomp d') : xs
+        go xs = xs
 
 outp :: (IsString a, Monoid a)
      => Int -> String -> DocState a
-outp off s | off <= 0 = do
+outp off s | off < 0 = do  -- offset < 0 means newline characters
   st' <- get
   let rawpref = prefix st'
   when (column st' == 0 && usePrefix st' && not (null rawpref)) $ do
     let pref = reverse $ dropWhile isSpace $ reverse rawpref
     modify $ \st -> st{ output = fromString pref : output st
                       , column = column st + realLength pref }
-  when (off < 0) $ do
-     modify $ \st -> st { output = fromString s : output st
-                        , column = 0
-                        , newlines = newlines st + 1 }
-outp off s = do
+  modify $ \st -> st { output = fromString s : output st
+                     , column = 0
+                     , newlines = newlines st + 1 }
+outp off s = do           -- offset >= 0 (0 might be combining char)
   st' <- get
   let pref = prefix st'
   when (column st' == 0 && usePrefix st' && not (null pref)) $ do
@@ -510,7 +508,9 @@ charWidth c =
         | c >= '\xFE10' && c <= '\xFE19'   -> 2
         | c >= '\xFE20' && c <= '\xFE26'   -> 1
         | c >= '\xFE30' && c <= '\xFE6B'   -> 2
-        | c >= '\xFE70' && c <= '\x16A38'  -> 1
+        | c >= '\xFE70' && c <= '\xFEFF'   -> 1
+        | c >= '\xFF01' && c <= '\xFF60'   -> 2
+        | c >= '\xFF61' && c <= '\x16A38'  -> 1
         | c >= '\x1B000' && c <= '\x1B001' -> 2
         | c >= '\x1D000' && c <= '\x1F1FF' -> 1
         | c >= '\x1F200' && c <= '\x1F251' -> 2

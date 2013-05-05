@@ -155,6 +155,11 @@ And:
 
 These should not be escaped:  \$ \\ \> \[ \{
 \end{verbatim}
+
+\begin{obeylines}
+this has \emph{two
+lines}
+\end{obeylines}
 \begin{center}\rule{3in}{0.4pt}\end{center}
 
 \section{Lists}
@@ -775,7 +780,7 @@ With an ampersand: \url{http://example.com/?foo=1&bar=2}
   It should.
 \end{itemize}
 An e-mail address:
-\href{mailto:nobody@nowhere.net}{\texttt{nobody@nowhere.net}}
+\href{mailto:nobody@nowhere.net}{nobody@nowhere.net}
 
 \begin{quote}
 Blockquoted: \url{http://example.com/}
@@ -835,5 +840,9 @@ Notes can go in quotes.\footnote{ In quote.
 \end{enumerate}
 This paragraph should not be part of the note, as it is not
 indented.
+
+\section{Escaped characters}
+
+\$ \% \& \# \_ \{ \}
 
 \end{document}

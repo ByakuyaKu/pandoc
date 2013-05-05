@@ -9,7 +9,7 @@ import Text.Pandoc.Builder
 import Text.Pandoc
 
 latex :: String -> Pandoc
-latex = readLaTeX defaultParserState
+latex = readLaTeX def
 
 infix 4 =:
 (=:) :: ToString c
@@ -67,7 +67,8 @@ baseCitation = Citation{ citationId      = "item1"
                        , citationSuffix  = []
                        , citationMode    = AuthorInText
                        , citationNoteNum = 0
-                       , citationHash    = 0 }
+                       , citationHash    = 0
+                       }
 
 rt :: String -> Inlines
 rt = rawInline "latex"

@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, QuasiQuotes #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Tests.Writers.Markdown (tests) where
 
 import Test.Framework
@@ -8,7 +8,7 @@ import Tests.Helpers
 import Tests.Arbitrary()
 
 markdown :: (ToString a, ToPandoc a) => a -> String
-markdown = writeMarkdown defaultWriterOptions . toPandoc
+markdown = writeMarkdown def . toPandoc
 
 {-
   "my test" =: X =?> Y

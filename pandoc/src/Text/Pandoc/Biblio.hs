@@ -30,7 +30,6 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 module Text.Pandoc.Biblio ( processBiblio ) where
 
 import Data.List
-import Data.Unique
 import Data.Char ( isDigit, isPunctuation )
 import qualified Data.Map as M
 import Text.CSL hiding ( Cite(..), Citation(..) )
@@ -38,30 +37,24 @@ import qualified Text.CSL as CSL ( Cite(..) )
 import Text.Pandoc.Definition
 import Text.Pandoc.Generic
 import Text.Pandoc.Shared (stringify)
-import Text.ParserCombinators.Parsec
+import Text.Parsec hiding (State)
 import Control.Monad
+import Control.Monad.State
 
 -- | Process a 'Pandoc' document by adding citations formatted
 -- according to a CSL style, using 'citeproc' from citeproc-hs.
-processBiblio :: FilePath -> Maybe FilePath -> [Reference] -> Pandoc
-              -> IO Pandoc
-processBiblio cslfile abrfile r p
-    = if null r then return p
-      else do
-        csl <- readCSLFile cslfile
-        abbrevs <- case abrfile of
-                      Just f  -> readJsonAbbrevFile f
-                      Nothing -> return []
-        p'   <- bottomUpM setHash p
-        let grps = queryWith getCitation p'
-            style      = csl { styleAbbrevs = abbrevs }
-            result     = citeproc procOpts style r (setNearNote style $
-                            map (map toCslCite) grps)
-            cits_map   = M.fromList $ zip grps (citations result)
-            biblioList = map (renderPandoc' style) (bibliography result)
-            Pandoc m b = bottomUp (processCite style cits_map) p'
-            b' = bottomUp mvPunct $ deNote b
-        return $ Pandoc m $ b' ++ biblioList
+processBiblio :: Maybe Style -> [Reference] -> Pandoc -> Pandoc
+processBiblio Nothing _ p = p
+processBiblio _      [] p = p
+processBiblio (Just style) r p =
+  let p'         = evalState (bottomUpM setHash p) 1
+      grps       = queryWith getCitation p'
+      result     = citeproc procOpts style r (setNearNote style $
+                      map (map toCslCite) grps)
+      cits_map   = M.fromList $ zip grps (citations result)
+      biblioList = map (renderPandoc' style) (bibliography result)
+      Pandoc m b = bottomUp mvPunct . deNote . bottomUp (processCite style cits_map) $ p'
+  in  Pandoc m $ b ++ biblioList
 
 -- | Substitute 'Cite' elements with formatted citations.
 processCite :: Style -> M.Map [Citation] [FormattedOutput] -> Inline -> Inline
@@ -92,18 +85,10 @@ mvPunct (Space : x : ys) | isNote x = x : ys
 mvPunct xs = xs
 
 sanitize :: [Inline] -> [Inline]
-sanitize xs | endWithPunct xs = toCapital' xs
-            | otherwise       = toCapital' (xs ++ [Str "."])
+sanitize xs | endWithPunct xs = toCapital xs
+            | otherwise       = toCapital (xs ++ [Str "."])
 
--- NOTE: toCapital' works around a bug in toCapital from citeproc-hs 0.3.4.
--- When citeproc-hs is fixed, we can return to using toCapital in sanitize.
-toCapital' :: [Inline] -> [Inline]
-toCapital' [] = []
-toCapital' xs = case toCapital xs of
-                       [] -> xs
-                       ys -> ys
-
-deNote :: [Block] -> [Block]
+deNote :: Pandoc -> Pandoc
 deNote = topDown go
   where go (Note [Para xs]) = Note $ bottomUp go' [Para $ sanitize xs]
         go (Note xs) = Note $ bottomUp go' xs
@@ -124,9 +109,11 @@ getCitation :: Inline -> [[Citation]]
 getCitation i | Cite t _ <- i = [t]
               | otherwise     = []
 
-setHash :: Citation -> IO Citation
-setHash (Citation i p s cm nn _)
-    = hashUnique `fmap` newUnique >>= return . Citation i p s cm nn
+setHash :: Citation -> State Int Citation
+setHash c = do
+  ident <- get
+  put $ ident + 1
+  return c{ citationHash = ident }
 
 toCslCite :: Citation -> CSL.Cite
 toCslCite c
@@ -165,7 +152,7 @@ locatorWords inp =
          breakup (x : xs) = x : breakup xs
          splitup = groupBy (\x y -> x /= '\160' && y /= '\160')
 
-pLocatorWords :: GenParser Inline st (String, [Inline])
+pLocatorWords :: Parsec [Inline] st (String, [Inline])
 pLocatorWords = do
   l <- pLocator
   s <- getInput -- rest is suffix
@@ -173,16 +160,16 @@ pLocatorWords = do
      then return (init l, Str "," : s)
      else return (l, s)
 
-pMatch :: (Inline -> Bool) -> GenParser Inline st Inline
+pMatch :: (Inline -> Bool) -> Parsec [Inline] st Inline
 pMatch condition = try $ do
   t <- anyToken
   guard $ condition t
   return t
 
-pSpace :: GenParser Inline st Inline
+pSpace :: Parsec [Inline] st Inline
 pSpace = pMatch (\t -> t == Space || t == Str "\160")
 
-pLocator :: GenParser Inline st String
+pLocator :: Parsec [Inline] st String
 pLocator = try $ do
   optional $ pMatch (== Str ",")
   optional pSpace
@@ -190,7 +177,7 @@ pLocator = try $ do
   gs <- many1 pWordWithDigits
   return $ stringify f ++ (' ' : unwords gs)
 
-pWordWithDigits :: GenParser Inline st String
+pWordWithDigits :: Parsec [Inline] st String
 pWordWithDigits = try $ do
   pSpace
   r <- many1 (notFollowedBy pSpace >> anyToken)

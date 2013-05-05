@@ -40,8 +40,8 @@ module Text.Pandoc.Writers.AsciiDoc (writeAsciiDoc) where
 import Text.Pandoc.Definition
 import Text.Pandoc.Templates (renderTemplate)
 import Text.Pandoc.Shared
-import Text.Pandoc.Parsing hiding (blankline)
-import Text.ParserCombinators.Parsec ( runParser, GenParser )
+import Text.Pandoc.Options
+import Text.Pandoc.Parsing hiding (blankline, space)
 import Data.List ( isPrefixOf, intersperse, intercalate )
 import Text.Pandoc.Pretty
 import Control.Monad.State
@@ -93,7 +93,7 @@ escapeString = escapeStringUsing escs
   where escs = backslashEscapes "{"
 
 -- | Ordered list start parser for use in Para below.
-olMarker :: GenParser Char ParserState Char
+olMarker :: Parser [Char] ParserState Char
 olMarker = do (start, style', delim) <- anyOrderedListMarker
               if delim == Period &&
                           (style' == UpperAlpha || (style' == UpperRoman &&
@@ -116,6 +116,8 @@ blockToAsciiDoc _ Null = return empty
 blockToAsciiDoc opts (Plain inlines) = do
   contents <- inlineListToAsciiDoc opts inlines
   return $ contents <> cr
+blockToAsciiDoc opts (Para [Image alt (src,'f':'i':'g':':':tit)]) =
+  blockToAsciiDoc opts (Para [Image alt (src,tit)])
 blockToAsciiDoc opts (Para inlines) = do
   contents <- inlineListToAsciiDoc opts inlines
   -- escape if para starts with ordered list marker
@@ -126,10 +128,10 @@ blockToAsciiDoc opts (Para inlines) = do
 blockToAsciiDoc _ (RawBlock _ _) = return empty
 blockToAsciiDoc _ HorizontalRule =
   return $ blankline <> text "'''''" <> blankline
-blockToAsciiDoc opts (Header level inlines) = do
+blockToAsciiDoc opts (Header level (ident,_,_) inlines) = do
   contents <- inlineListToAsciiDoc opts inlines
   let len = offset contents
-  return $ contents <> cr <>
+  return $ ("[[" <> text ident <> "]]") $$ contents $$
          (case level of
                1  -> text $ replicate len '-'
                2  -> text $ replicate len '~'
@@ -343,8 +345,8 @@ inlineToAsciiDoc opts (Link txt (src, _tit)) = do
                   else empty
   let srcSuffix = if isPrefixOf "mailto:" src then drop 7 src else src
   let useAuto = case txt of
-                      [Code _ s] | s == srcSuffix -> True
-                      _                           -> False
+                      [Str s] | escapeURI s == srcSuffix -> True
+                      _                                  -> False
   return $ if useAuto
               then text srcSuffix
               else prefix <> text src <> "[" <> linktext <> "]"

@@ -19,7 +19,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 {- |
    Module      : Text.Pandoc.UTF8
    Copyright   : Copyright (C) 2010 John MacFarlane
-   License     : GNU GPL, version 2 or above 
+   License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
    Stability   : alpha
@@ -35,21 +35,27 @@ module Text.Pandoc.UTF8 ( readFile
                         , hPutStr
                         , hPutStrLn
                         , hGetContents
+                        , toString
+                        , fromString
+                        , toStringLazy
+                        , fromStringLazy
+                        , encodePath
+                        , decodeArg
                         )
 
 where
 
-#if MIN_VERSION_base(4,4,0)
-#else
-import Codec.Binary.UTF8.String (encodeString)
-#endif
-
-#if MIN_VERSION_base(4,2,0)
-
 import System.IO hiding (readFile, writeFile, getContents,
                           putStr, putStrLn, hPutStr, hPutStrLn, hGetContents)
-import Prelude hiding (readFile, writeFile, getContents, putStr, putStrLn )
+import Prelude hiding (readFile, writeFile, getContents, putStr, putStrLn,
+                       catch)
 import qualified System.IO as IO
+import qualified Data.ByteString.Char8 as B
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.Text.Encoding as T
+import qualified Data.Text as T
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Encoding as TL
 
 readFile :: FilePath -> IO String
 readFile f = do
@@ -75,53 +81,40 @@ hPutStrLn :: Handle -> String -> IO ()
 hPutStrLn h s = hSetEncoding h utf8 >> IO.hPutStrLn h s
 
 hGetContents :: Handle -> IO String
-hGetContents h = hSetEncoding h utf8_bom >> IO.hGetContents h
+hGetContents = fmap toStringLazy . BL.hGetContents
+-- hGetContents h = hSetEncoding h utf8_bom
+--                   >> hSetNewlineMode h universalNewlineMode
+--                   >> IO.hGetContents h
 
-#else
+-- | Drop BOM (byte order marker) if present at beginning of string.
+-- Note that Data.Text converts the BOM to code point FEFF, zero-width
+-- no-break space, so if the string begins with this  we strip it off.
+dropBOM :: String -> String
+dropBOM ('\xFEFF':xs) = xs
+dropBOM xs = xs
 
-import qualified Data.ByteString as B
-import Data.ByteString.UTF8 (toString, fromString)
-import Prelude hiding (readFile, writeFile, getContents, putStr, putStrLn)
-import System.IO (Handle)
-import Control.Monad (liftM)
+-- | Convert UTF8-encoded ByteString to String, also
+-- removing '\r' characters.
+toString :: B.ByteString -> String
+toString = filter (/='\r') . dropBOM . T.unpack . T.decodeUtf8
 
+fromString :: String -> B.ByteString
+fromString = T.encodeUtf8 . T.pack
 
-bom :: B.ByteString
-bom = B.pack [0xEF, 0xBB, 0xBF]
+-- | Convert UTF8-encoded ByteString to String, also
+-- removing '\r' characters.
+toStringLazy :: BL.ByteString -> String
+toStringLazy = filter (/='\r') . dropBOM . TL.unpack . TL.decodeUtf8
 
-stripBOM :: B.ByteString -> B.ByteString
-stripBOM s | bom `B.isPrefixOf` s = B.drop 3 s
-stripBOM s = s
-
-readFile :: FilePath -> IO String
-readFile = liftM (toString . stripBOM) . B.readFile . encodePath
-
-writeFile :: FilePath -> String -> IO ()
-writeFile f = B.writeFile (encodePath f) . fromString
-
-getContents :: IO String
-getContents = liftM (toString . stripBOM) B.getContents
-
-hGetContents :: Handle -> IO String
-hGetContents h = liftM (toString . stripBOM) (B.hGetContents h)
-
-putStr :: String -> IO ()
-putStr = B.putStr . fromString
-
-putStrLn :: String -> IO ()
-putStrLn = B.putStrLn . fromString
-
-hPutStr :: Handle -> String -> IO ()
-hPutStr h = B.hPutStr h . fromString
-
-hPutStrLn :: Handle -> String -> IO ()
-hPutStrLn h s = hPutStr h (s ++ "\n")
-
-#endif
+fromStringLazy :: String -> BL.ByteString
+fromStringLazy = TL.encodeUtf8 . TL.pack
 
 encodePath :: FilePath -> FilePath
+decodeArg :: String -> String
 #if MIN_VERSION_base(4,4,0)
 encodePath = id
+decodeArg = id
 #else
-encodePath = encodeString
+encodePath = B.unpack . fromString
+decodeArg = toString . B.pack
 #endif

@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveDataTypeable, CPP #-}
 {-
 Copyright (C) 2006-2010 John MacFarlane <jgm@berkeley.edu>
 
@@ -20,7 +20,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 {- |
    Module      : Text.Pandoc.Shared
    Copyright   : Copyright (C) 2006-2010 John MacFarlane
-   License     : GNU GPL, version 2 or above 
+   License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
    Stability   : alpha
@@ -38,9 +38,9 @@ module Text.Pandoc.Shared (
                      backslashEscapes,
                      escapeStringUsing,
                      stripTrailingNewlines,
-                     removeLeadingTrailingSpace,
-                     removeLeadingSpace,
-                     removeTrailingSpace,
+                     trim,
+                     triml,
+                     trimr,
                      stripFirstAndLast,
                      camelCaseToHyphenated,
                      toRomanNumeral,
@@ -54,47 +54,59 @@ module Text.Pandoc.Shared (
                      normalize,
                      stringify,
                      compactify,
+                     compactify',
                      Element (..),
                      hierarchicalize,
                      uniqueIdent,
                      isHeaderBlock,
                      headerShift,
-                     -- * Writer options
-                     HTMLMathMethod (..),
-                     CiteMethod (..),
-                     ObfuscationMethod (..),
-                     HTMLSlideVariant (..),
-                     WriterOptions (..),
-                     defaultWriterOptions,
+                     isTightList,
+                     -- * TagSoup HTML handling
+                     renderTags',
                      -- * File handling
                      inDirectory,
-                     findDataFile,
                      readDataFile,
+                     readDataFileUTF8,
+                     fetchItem,
+                     openURL,
                      -- * Error handling
                      err,
                      warn,
+                     -- * Safe read
+                     safeRead
                     ) where
 
 import Text.Pandoc.Definition
 import Text.Pandoc.Generic
+import Text.Pandoc.Builder (Blocks)
+import qualified Text.Pandoc.Builder as B
 import qualified Text.Pandoc.UTF8 as UTF8
 import System.Environment (getProgName)
 import System.Exit (exitWith, ExitCode(..))
 import Data.Char ( toLower, isLower, isUpper, isAlpha,
                    isLetter, isDigit, isSpace )
 import Data.List ( find, isPrefixOf, intercalate )
-import Network.URI ( escapeURIString )
+import Network.URI ( escapeURIString, isAbsoluteURI, parseURI )
 import System.Directory
-import System.FilePath ( (</>) )
+import Text.Pandoc.MIME (getMimeType)
+import System.FilePath ( (</>), takeExtension, dropExtension )
 import Data.Generics (Typeable, Data)
 import qualified Control.Monad.State as S
-import Control.Monad (msum)
-import Paths_pandoc (getDataFileName)
-import Text.Pandoc.Highlighting (Style, pygments)
+import Control.Monad (msum, unless)
 import Text.Pandoc.Pretty (charWidth)
 import System.Locale (defaultTimeLocale)
 import Data.Time
 import System.IO (stderr)
+import Text.HTML.TagSoup (renderTagsOptions, RenderOptions(..), Tag(..),
+         renderOptions)
+import qualified Data.ByteString as B
+import Network.HTTP (findHeader, rspBody, simpleHTTP, RequestMethod(..),
+                     HeaderName(..), mkRequest)
+#ifdef EMBED_DATA_FILES
+import Text.Pandoc.Data (dataFiles)
+#else
+import Paths_pandoc (getDataFileName)
+#endif
 
 --
 -- List processing
@@ -149,7 +161,7 @@ backslashEscapes = map (\ch -> (ch, ['\\',ch]))
 -- characters and strings.
 escapeStringUsing :: [(Char, String)] -> String -> String
 escapeStringUsing _ [] = ""
-escapeStringUsing escapeTable (x:xs) = 
+escapeStringUsing escapeTable (x:xs) =
   case (lookup x escapeTable) of
        Just str  -> str ++ rest
        Nothing   -> x:rest
@@ -160,23 +172,23 @@ stripTrailingNewlines :: String -> String
 stripTrailingNewlines = reverse . dropWhile (== '\n') . reverse
 
 -- | Remove leading and trailing space (including newlines) from string.
-removeLeadingTrailingSpace :: String -> String
-removeLeadingTrailingSpace = removeLeadingSpace . removeTrailingSpace
+trim :: String -> String
+trim = triml . trimr
 
 -- | Remove leading space (including newlines) from string.
-removeLeadingSpace :: String -> String
-removeLeadingSpace = dropWhile (`elem` " \n\t")
+triml :: String -> String
+triml = dropWhile (`elem` " \r\n\t")
 
 -- | Remove trailing space (including newlines) from string.
-removeTrailingSpace :: String -> String
-removeTrailingSpace = reverse . removeLeadingSpace . reverse
+trimr :: String -> String
+trimr = reverse . triml . reverse
 
 -- | Strip leading and trailing characters from string
 stripFirstAndLast :: String -> String
 stripFirstAndLast str =
   drop 1 $ take ((length str) - 1) str
 
--- | Change CamelCase word to hyphenated lowercase (e.g., camel-case). 
+-- | Change CamelCase word to hyphenated lowercase (e.g., camel-case).
 camelCaseToHyphenated :: String -> String
 camelCaseToHyphenated [] = ""
 camelCaseToHyphenated (a:b:rest) | isLower a && isUpper b =
@@ -247,13 +259,13 @@ normalizeDate s = fmap (formatTime defaultTimeLocale "%F")
 -- | Generate infinite lazy list of markers for an ordered list,
 -- depending on list attributes.
 orderedListMarkers :: (Int, ListNumberStyle, ListNumberDelim) -> [String]
-orderedListMarkers (start, numstyle, numdelim) = 
+orderedListMarkers (start, numstyle, numdelim) =
   let singleton c = [c]
       nums = case numstyle of
                      DefaultStyle -> map show [start..]
                      Example      -> map show [start..]
                      Decimal      -> map show [start..]
-                     UpperAlpha   -> drop (start - 1) $ cycle $ 
+                     UpperAlpha   -> drop (start - 1) $ cycle $
                                      map singleton ['A'..'Z']
                      LowerAlpha   -> drop (start - 1) $ cycle $
                                      map singleton ['a'..'z']
@@ -271,13 +283,12 @@ orderedListMarkers (start, numstyle, numdelim) =
 -- remove empty Str elements.
 normalizeSpaces :: [Inline] -> [Inline]
 normalizeSpaces = cleanup . dropWhile isSpaceOrEmpty
- where  cleanup [] = []
-        cleanup (Space:rest) = let rest' = dropWhile isSpaceOrEmpty rest
-                               in  case rest' of
-                                   []            -> []
-                                   _             -> Space : cleanup rest'
+ where  cleanup []              = []
+        cleanup (Space:rest)    = case dropWhile isSpaceOrEmpty rest of
+                                        []     -> []
+                                        (x:xs) -> Space : x : cleanup xs
         cleanup ((Str ""):rest) = cleanup rest
-        cleanup (x:rest) = x : cleanup rest
+        cleanup (x:rest)        = x : cleanup rest
 
 isSpaceOrEmpty :: Inline -> Bool
 isSpaceOrEmpty Space = True
@@ -381,14 +392,29 @@ compactify items =
                                 _   -> items
                  _      -> items
 
+-- | Change final list item from @Para@ to @Plain@ if the list contains
+-- no other @Para@ blocks.  Like compactify, but operates on @Blocks@ rather
+-- than @[Block]@.
+compactify' :: [Blocks]  -- ^ List of list items (each a list of blocks)
+           -> [Blocks]
+compactify' [] = []
+compactify' items =
+  let (others, final) = (init items, last items)
+  in  case reverse (B.toList final) of
+           (Para a:xs) -> case [Para x | Para x <- concatMap B.toList items] of
+                            -- if this is only Para, change to Plain
+                            [_] -> others ++ [B.fromList (reverse $ Plain a : xs)]
+                            _   -> items
+           _      -> items
+
 isPara :: Block -> Bool
 isPara (Para _) = True
 isPara _        = False
 
 -- | Data structure for defining hierarchical Pandoc documents
-data Element = Blk Block 
-             | Sec Int [Int] String [Inline] [Element]
-             --    lvl  num ident  label    contents
+data Element = Blk Block
+             | Sec Int [Int] Attr [Inline] [Element]
+             --    lvl  num attributes label    contents
              deriving (Eq, Read, Show, Typeable, Data)
 
 -- | Convert Pandoc inline list to plain text identifier.  HTML
@@ -405,28 +431,29 @@ inlineListToIdentifier =
 
 -- | Convert list of Pandoc blocks into (hierarchical) list of Elements
 hierarchicalize :: [Block] -> [Element]
-hierarchicalize blocks = S.evalState (hierarchicalizeWithIds blocks) ([],[])
+hierarchicalize blocks = S.evalState (hierarchicalizeWithIds blocks) []
 
-hierarchicalizeWithIds :: [Block] -> S.State ([Int],[String]) [Element]
+hierarchicalizeWithIds :: [Block] -> S.State [Int] [Element]
 hierarchicalizeWithIds [] = return []
-hierarchicalizeWithIds ((Header level title'):xs) = do
-  (lastnum, usedIdents) <- S.get
-  let ident = uniqueIdent title' usedIdents
+hierarchicalizeWithIds ((Header level attr@(_,classes,_) title'):xs) = do
+  lastnum <- S.get
   let lastnum' = take level lastnum
-  let newnum = if length lastnum' >= level
-                  then init lastnum' ++ [last lastnum' + 1] 
-                  else lastnum ++ replicate (level - length lastnum - 1) 0 ++ [1]
-  S.put (newnum, (ident : usedIdents))
+  let newnum = case length lastnum' of
+                    x | "unnumbered" `elem` classes -> []
+                      | x >= level -> init lastnum' ++ [last lastnum' + 1]
+                      | otherwise -> lastnum ++
+                           replicate (level - length lastnum - 1) 0 ++ [1]
+  unless (null newnum) $ S.put newnum
   let (sectionContents, rest) = break (headerLtEq level) xs
   sectionContents' <- hierarchicalizeWithIds sectionContents
   rest' <- hierarchicalizeWithIds rest
-  return $ Sec level newnum ident title' sectionContents' : rest'
+  return $ Sec level newnum attr title' sectionContents' : rest'
 hierarchicalizeWithIds (x:rest) = do
   rest' <- hierarchicalizeWithIds rest
   return $ (Blk x) : rest'
 
 headerLtEq :: Int -> Block -> Bool
-headerLtEq level (Header l _) = l <= level
+headerLtEq level (Header l _ _) = l <= level
 headerLtEq _ _ = False
 
 -- | Generate a unique identifier from a list of inlines.
@@ -445,123 +472,37 @@ uniqueIdent title' usedIdents =
 
 -- | True if block is a Header block.
 isHeaderBlock :: Block -> Bool
-isHeaderBlock (Header _ _) = True
+isHeaderBlock (Header _ _ _) = True
 isHeaderBlock _ = False
 
 -- | Shift header levels up or down.
 headerShift :: Int -> Pandoc -> Pandoc
 headerShift n = bottomUp shift
   where shift :: Block -> Block
-        shift (Header level inner) = Header (level + n) inner
-        shift x                    = x
+        shift (Header level attr inner) = Header (level + n) attr inner
+        shift x                         = x
+
+-- | Detect if a list is tight.
+isTightList :: [[Block]] -> Bool
+isTightList = and . map firstIsPlain
+  where firstIsPlain (Plain _ : _) = True
+        firstIsPlain _             = False
 
 --
--- Writer options
+-- TagSoup HTML handling
 --
 
-data HTMLMathMethod = PlainMath 
-                    | LaTeXMathML (Maybe String)  -- url of LaTeXMathML.js
-                    | JsMath (Maybe String)       -- url of jsMath load script
-                    | GladTeX
-                    | WebTeX String               -- url of TeX->image script.
-                    | MathML (Maybe String)       -- url of MathMLinHTML.js
-                    | MathJax String              -- url of MathJax.js
-                    deriving (Show, Read, Eq)
-
-data CiteMethod = Citeproc                        -- use citeproc to render them
-                  | Natbib                        -- output natbib cite commands
-                  | Biblatex                      -- output biblatex cite commands
-                deriving (Show, Read, Eq)
-
--- | Methods for obfuscating email addresses in HTML.
-data ObfuscationMethod = NoObfuscation
-                       | ReferenceObfuscation
-                       | JavascriptObfuscation
-                       deriving (Show, Read, Eq)
-
--- | Varieties of HTML slide shows.
-data HTMLSlideVariant = S5Slides
-                      | SlidySlides
-                      | SlideousSlides
-                      | DZSlides
-                      | NoSlides
-                      deriving (Show, Read, Eq)
-
--- | Options for writers
-data WriterOptions = WriterOptions
-  { writerStandalone       :: Bool   -- ^ Include header and footer
-  , writerTemplate         :: String -- ^ Template to use in standalone mode
-  , writerVariables        :: [(String, String)] -- ^ Variables to set in template
-  , writerEPUBMetadata     :: String -- ^ Metadata to include in EPUB
-  , writerTabStop          :: Int    -- ^ Tabstop for conversion btw spaces and tabs
-  , writerTableOfContents  :: Bool   -- ^ Include table of contents
-  , writerSlideVariant     :: HTMLSlideVariant -- ^ Are we writing S5, Slidy or Slideous?
-  , writerIncremental      :: Bool   -- ^ True if lists should be incremental
-  , writerXeTeX            :: Bool   -- ^ Create latex suitable for use by xetex
-  , writerHTMLMathMethod   :: HTMLMathMethod  -- ^ How to print math in HTML
-  , writerIgnoreNotes      :: Bool   -- ^ Ignore footnotes (used in making toc)
-  , writerNumberSections   :: Bool   -- ^ Number sections in LaTeX
-  , writerSectionDivs      :: Bool   -- ^ Put sections in div tags in HTML
-  , writerStrictMarkdown   :: Bool   -- ^ Use strict markdown syntax
-  , writerReferenceLinks   :: Bool   -- ^ Use reference links in writing markdown, rst
-  , writerWrapText         :: Bool   -- ^ Wrap text to line length
-  , writerColumns          :: Int    -- ^ Characters in a line (for text wrapping)
-  , writerLiterateHaskell  :: Bool   -- ^ Write as literate haskell
-  , writerEmailObfuscation :: ObfuscationMethod -- ^ How to obfuscate emails
-  , writerIdentifierPrefix :: String -- ^ Prefix for section & note ids in HTML
-  , writerSourceDirectory  :: FilePath -- ^ Directory path of 1st source file
-  , writerUserDataDir      :: Maybe FilePath -- ^ Path of user data directory
-  , writerCiteMethod       :: CiteMethod -- ^ How to print cites
-  , writerBiblioFiles      :: [FilePath] -- ^ Biblio files to use for citations
-  , writerHtml5            :: Bool       -- ^ Produce HTML5
-  , writerBeamer           :: Bool       -- ^ Produce beamer LaTeX slide show
-  , writerSlideLevel       :: Maybe Int  -- ^ Force header level of slides
-  , writerChapters         :: Bool       -- ^ Use "chapter" for top-level sects
-  , writerListings         :: Bool       -- ^ Use listings package for code
-  , writerHighlight        :: Bool       -- ^ Highlight source code
-  , writerHighlightStyle   :: Style      -- ^ Style to use for highlighting
-  , writerSetextHeaders    :: Bool       -- ^ Use setext headers for levels 1-2 in markdown
-  , writerTeXLigatures     :: Bool       -- ^ Use tex ligatures quotes, dashes in latex
-  } deriving Show
-
-{-# DEPRECATED writerXeTeX "writerXeTeX no longer does anything" #-}
--- | Default writer options.
-defaultWriterOptions :: WriterOptions
-defaultWriterOptions = 
-  WriterOptions { writerStandalone       = False
-                , writerTemplate         = ""
-                , writerVariables        = []
-                , writerEPUBMetadata     = ""
-                , writerTabStop          = 4
-                , writerTableOfContents  = False
-                , writerSlideVariant     = NoSlides
-                , writerIncremental      = False
-                , writerXeTeX            = False
-                , writerHTMLMathMethod   = PlainMath
-                , writerIgnoreNotes      = False
-                , writerNumberSections   = False
-                , writerSectionDivs      = False
-                , writerStrictMarkdown   = False
-                , writerReferenceLinks   = False
-                , writerWrapText         = True
-                , writerColumns          = 72
-                , writerLiterateHaskell  = False
-                , writerEmailObfuscation = JavascriptObfuscation
-                , writerIdentifierPrefix = ""
-                , writerSourceDirectory  = "."
-                , writerUserDataDir      = Nothing
-                , writerCiteMethod       = Citeproc
-                , writerBiblioFiles      = []
-                , writerHtml5            = False
-                , writerBeamer           = False
-                , writerSlideLevel       = Nothing
-                , writerChapters         = False
-                , writerListings         = False
-                , writerHighlight        = False
-                , writerHighlightStyle   = pygments
-                , writerSetextHeaders    = True
-                , writerTeXLigatures     = True
-                }
+-- | Render HTML tags.
+renderTags' :: [Tag String] -> String
+renderTags' = renderTagsOptions
+               renderOptions{ optMinimize = \x ->
+                                    let y = map toLower x
+                                    in  y == "hr" || y == "br" ||
+                                        y == "img" || y == "meta" ||
+                                        y == "link"
+                            , optRawTag = \x ->
+                                    let y = map toLower x
+                                    in  y == "script" || y == "style" }
 
 --
 -- File handling
@@ -576,20 +517,57 @@ inDirectory path action = do
   setCurrentDirectory oldDir
   return result
 
--- | Get file path for data file, either from specified user data directory,
--- or, if not found there, from Cabal data directory.
-findDataFile :: Maybe FilePath -> FilePath -> IO FilePath
-findDataFile Nothing f = getDataFileName f
-findDataFile (Just u) f = do
-  ex <- doesFileExist (u </> f)
-  if ex
-     then return (u </> f)
-     else getDataFileName f
+readDefaultDataFile :: FilePath -> IO B.ByteString
+readDefaultDataFile fname =
+#ifdef EMBED_DATA_FILES
+  case lookup fname dataFiles of
+    Nothing       -> ioError $ userError
+                             $ "Data file `" ++ fname ++ "' does not exist"
+    Just contents -> return contents
+#else
+  getDataFileName ("data" </> fname) >>= B.readFile
+#endif
 
 -- | Read file from specified user data directory or, if not found there, from
 -- Cabal data directory.
-readDataFile :: Maybe FilePath -> FilePath -> IO String
-readDataFile userDir fname = findDataFile userDir fname >>= UTF8.readFile
+readDataFile :: Maybe FilePath -> FilePath -> IO B.ByteString
+readDataFile Nothing fname = readDefaultDataFile fname
+readDataFile (Just userDir) fname = do
+  exists <- doesFileExist (userDir </> fname)
+  if exists
+     then B.readFile (userDir </> fname)
+     else readDefaultDataFile fname
+
+-- | Same as 'readDataFile' but returns a String instead of a ByteString.
+readDataFileUTF8 :: Maybe FilePath -> FilePath -> IO String
+readDataFileUTF8 userDir fname =
+  UTF8.toString `fmap` readDataFile userDir fname
+
+-- | Fetch an image or other item from the local filesystem or the net.
+-- Returns raw content and maybe mime type.
+fetchItem :: String -> String -> IO (B.ByteString, Maybe String)
+fetchItem sourceDir s =
+  case s of
+    _ | isAbsoluteURI s         -> openURL s
+      | isAbsoluteURI sourceDir -> openURL $ sourceDir ++ "/" ++ s
+      | otherwise               -> do
+          let mime = case takeExtension s of
+                        ".gz" -> getMimeType $ dropExtension s
+                        x     -> getMimeType x
+          let f = sourceDir </> s
+          cont <- B.readFile f
+          return (cont, mime)
+
+-- TODO - have this return mime type too - then it can work for google
+-- chart API, e.g.
+-- | Read from a URL and return raw data and maybe mime type.
+openURL :: String -> IO (B.ByteString, Maybe String)
+openURL u = getBodyAndMimeType =<< simpleHTTP (getReq u)
+  where getReq v = case parseURI v of
+                     Nothing  -> error $ "Could not parse URI: " ++ v
+                     Just u'  -> mkRequest GET u'
+        getBodyAndMimeType (Left e) = fail (show e)
+        getBodyAndMimeType (Right r)  = return (rspBody r, findHeader HdrContentType r)
 
 --
 -- Error reporting
@@ -606,3 +584,15 @@ warn :: String -> IO ()
 warn msg = do
   name <- getProgName
   UTF8.hPutStrLn stderr $ name ++ ": " ++ msg
+
+--
+-- Safe read
+--
+
+safeRead :: (Monad m, Read a) => String -> m a
+safeRead s = case reads s of
+                  (d,x):_
+                    | all isSpace x -> return d
+                  _                 -> fail $ "Could not read `" ++ s ++ "'"
+
+

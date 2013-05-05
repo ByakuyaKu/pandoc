@@ -8,6 +8,7 @@
   <meta name="author" content="Anonymous" />
   <meta name="date" content="2006-07-17" />
   <title>Pandoc Test Suite</title>
+  <style type="text/css">code{white-space: pre;}</style>
 </head>
 <body>
 <div id="header">
@@ -281,29 +282,34 @@ These should not be escaped:  \$ \\ \&gt; \[ \{</code></pre>
 <dl>
 <dt>apple</dt>
 <dd>red fruit
-</dd><dd>computer
+</dd>
+<dd>computer
 </dd>
 <dt>orange</dt>
 <dd>orange fruit
-</dd><dd>bank
+</dd>
+<dd>bank
 </dd>
 </dl>
 <p>Multiple definitions, loose:</p>
 <dl>
 <dt>apple</dt>
 <dd><p>red fruit</p>
-</dd><dd><p>computer</p>
+</dd>
+<dd><p>computer</p>
 </dd>
 <dt>orange</dt>
 <dd><p>orange fruit</p>
-</dd><dd><p>bank</p>
+</dd>
+<dd><p>bank</p>
 </dd>
 </dl>
 <p>Blank line after term, indented marker, alternate markers:</p>
 <dl>
 <dt>apple</dt>
 <dd><p>red fruit</p>
-</dd><dd><p>computer</p>
+</dd>
+<dd><p>computer</p>
 </dd>
 <dt>orange</dt>
 <dd><p>orange fruit</p>
@@ -518,20 +524,20 @@ document.write('<a h'+'ref'+'="ma'+'ilto'+':'+e+'">'+'Email link'+'<\/'+'a'+'>')
 <p>Here’s an <a href="/script?foo=1&amp;bar=2">inline link</a>.</p>
 <p>Here’s an <a href="/script?foo=1&amp;bar=2">inline link in pointy braces</a>.</p>
 <h2 id="autolinks">Autolinks</h2>
-<p>With an ampersand: <a href="http://example.com/?foo=1&amp;bar=2"><code class="url">http://example.com/?foo=1&amp;bar=2</code></a></p>
+<p>With an ampersand: <a href="http://example.com/?foo=1&amp;bar=2">http://example.com/?foo=1&amp;bar=2</a></p>
 <ul>
 <li>In a list?</li>
-<li><a href="http://example.com/"><code class="url">http://example.com/</code></a></li>
+<li><a href="http://example.com/">http://example.com/</a></li>
 <li>It should.</li>
 </ul>
 <p>An e-mail address: <script type="text/javascript">
 <!--
 h='&#110;&#x6f;&#x77;&#104;&#x65;&#114;&#x65;&#46;&#110;&#x65;&#116;';a='&#64;';n='&#110;&#x6f;&#98;&#x6f;&#100;&#x79;';e=n+a+h;
-document.write('<a h'+'ref'+'="ma'+'ilto'+':'+e+'">'+'<code>'+e+'</code>'+'<\/'+'a'+'>');
+document.write('<a h'+'ref'+'="ma'+'ilto'+':'+e+'">'+e+'<\/'+'a'+'>');
 // -->
 </script><noscript>&#110;&#x6f;&#98;&#x6f;&#100;&#x79;&#32;&#x61;&#116;&#32;&#110;&#x6f;&#x77;&#104;&#x65;&#114;&#x65;&#32;&#100;&#x6f;&#116;&#32;&#110;&#x65;&#116;</noscript></p>
 <blockquote>
-<p>Blockquoted: <a href="http://example.com/"><code class="url">http://example.com/</code></a></p>
+<p>Blockquoted: <a href="http://example.com/">http://example.com/</a></p>
 </blockquote>
 <p>Auto-links should not occur here: <code>&lt;http://example.com/&gt;</code></p>
 <pre><code>or here: &lt;http://example.com/&gt;</code></pre>

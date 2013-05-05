@@ -279,7 +279,8 @@ Field Lists
 :address:  61 Main St.
 :city:  *Nowhere*, MA,
     USA
-:phone: 123-4567
+:phone:
+  123-4567
 
 HTML Blocks
 ===========
@@ -415,6 +416,12 @@ Here is a movie |movie| icon.
 
 .. |movie| image:: movie.jpg
 
+And an |image with a link|.
+
+.. |image with a link| image:: movie.jpg
+   :alt:  A movie
+   :target: /url
+
 Comments
 ========
 
@@ -447,7 +454,7 @@ Line blocks
 |     or not to be an entire bee,
 |         when half the bee is not a bee,
 |             due to some ancient injury?
-
+|
 | Continuation
  line
 |   and
@@ -555,8 +562,8 @@ display math:
    \alpha = \beta
 
 .. math::
-   :label hithere
-   :nowrap
+   :label: hithere
+   :nowrap:
 
    E &= mc^2\\
    F &= \pi E
@@ -593,3 +600,7 @@ Reset default-role to the default default.
 
 And now `some-invalid-string-3231231` is nonsense.
 
+Literal symbols
+---------------
+
+2*2 = 4*1

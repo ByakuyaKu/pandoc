@@ -31,7 +31,7 @@ Conversion of 'Pandoc' documents to OpenDocument XML.
 -}
 module Text.Pandoc.Writers.OpenDocument ( writeOpenDocument ) where
 import Text.Pandoc.Definition
-import Text.Pandoc.Shared
+import Text.Pandoc.Options
 import Text.Pandoc.XML
 import Text.Pandoc.Templates (renderTemplate)
 import Text.Pandoc.Readers.TeXMath
@@ -287,7 +287,7 @@ blockToOpenDocument :: WriterOptions -> Block -> State WriterState Doc
 blockToOpenDocument o bs
     | Plain          b <- bs = inParagraphTags =<< inlinesToOpenDocument o b
     | Para           b <- bs = inParagraphTags =<< inlinesToOpenDocument o b
-    | Header       i b <- bs = setFirstPara >>
+    | Header     i _ b <- bs = setFirstPara >>
                                (inHeaderTags  i =<< inlinesToOpenDocument o b)
     | BlockQuote     b <- bs = setFirstPara >> mkBlockQuote b
     | DefinitionList b <- bs = setFirstPara >> defList b

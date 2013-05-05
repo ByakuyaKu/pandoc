@@ -4,8 +4,8 @@
 \usepackage{amssymb,amsmath}
 \usepackage{ifxetex,ifluatex}
 \usepackage{fixltx2e} % provides \textsubscript
-% use microtype if available
-\IfFileExists{microtype.sty}{\usepackage{microtype}}{}
+% use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
 \ifnum 0\ifxetex 1\fi\ifluatex 1\fi=0 % if pdftex
   \usepackage[utf8]{inputenc}
 \else % if luatex or xelatex
@@ -16,14 +16,9 @@
   \defaultfontfeatures{Mapping=tex-text,Scale=MatchLowercase}
   \newcommand{\euro}{€}
 \fi
+% use microtype if available
+\IfFileExists{microtype.sty}{\usepackage{microtype}}{}
 \usepackage{fancyvrb}
-% Redefine labelwidth for lists; otherwise, the enumerate package will cause
-% markers to extend beyond the left margin.
-\makeatletter\AtBeginDocument{%
-  \renewcommand{\@listi}
-    {\setlength{\labelwidth}{4em}}
-}\makeatother
-\usepackage{enumerate}
 \usepackage{graphicx}
 % We will generate all images so they have a width \maxwidth. This means
 % that they will get their normal width if they fit onto the page, but
@@ -49,6 +44,7 @@
             urlcolor=blue,
             linkcolor=magenta,
             pdfborder={0 0 0}}
+\urlstyle{same}  % don't use monospace font for urls
 \usepackage[normalem]{ulem}
 % avoid problems with \sout in headers with hyperref:
 \pdfstringdefDisableCommands{\renewcommand{\sout}{}}
@@ -127,7 +123,9 @@ sub status {
 
 A list:
 
-\begin{enumerate}[1.]
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\itemsep1pt\parskip0pt\parsep0pt
 \item
   item one
 \item
@@ -182,6 +180,7 @@ These should not be escaped:  \$ \\ \> \[ \{
 Asterisks tight:
 
 \begin{itemize}
+\itemsep1pt\parskip0pt\parsep0pt
 \item
   asterisk 1
 \item
@@ -204,6 +203,7 @@ Asterisks loose:
 Pluses tight:
 
 \begin{itemize}
+\itemsep1pt\parskip0pt\parsep0pt
 \item
   Plus 1
 \item
@@ -226,6 +226,7 @@ Pluses loose:
 Minuses tight:
 
 \begin{itemize}
+\itemsep1pt\parskip0pt\parsep0pt
 \item
   Minus 1
 \item
@@ -249,7 +250,9 @@ Minuses loose:
 
 Tight:
 
-\begin{enumerate}[1.]
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\itemsep1pt\parskip0pt\parsep0pt
 \item
   First
 \item
@@ -260,7 +263,9 @@ Tight:
 
 and:
 
-\begin{enumerate}[1.]
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\itemsep1pt\parskip0pt\parsep0pt
 \item
   One
 \item
@@ -271,7 +276,8 @@ and:
 
 Loose using tabs:
 
-\begin{enumerate}[1.]
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
 \item
   First
 \item
@@ -282,7 +288,8 @@ Loose using tabs:
 
 and using spaces:
 
-\begin{enumerate}[1.]
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
 \item
   One
 \item
@@ -293,7 +300,8 @@ and using spaces:
 
 Multiple paragraphs:
 
-\begin{enumerate}[1.]
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
 \item
   Item 1, graf one.
 
@@ -307,14 +315,17 @@ Multiple paragraphs:
 \subsection{Nested}
 
 \begin{itemize}
+\itemsep1pt\parskip0pt\parsep0pt
 \item
   Tab
 
   \begin{itemize}
+  \itemsep1pt\parskip0pt\parsep0pt
   \item
     Tab
 
     \begin{itemize}
+    \itemsep1pt\parskip0pt\parsep0pt
     \item
       Tab
     \end{itemize}
@@ -323,13 +334,16 @@ Multiple paragraphs:
 
 Here's another:
 
-\begin{enumerate}[1.]
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\itemsep1pt\parskip0pt\parsep0pt
 \item
   First
 \item
   Second:
 
   \begin{itemize}
+  \itemsep1pt\parskip0pt\parsep0pt
   \item
     Fee
   \item
@@ -343,13 +357,15 @@ Here's another:
 
 Same thing but with paragraphs:
 
-\begin{enumerate}[1.]
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
 \item
   First
 \item
   Second:
 
   \begin{itemize}
+  \itemsep1pt\parskip0pt\parsep0pt
   \item
     Fee
   \item
@@ -379,7 +395,8 @@ Same thing but with paragraphs:
 
 \subsection{Fancy list markers}
 
-\begin{enumerate}[(1)]
+\begin{enumerate}
+\def\labelenumi{(\arabic{enumi})}
 \setcounter{enumi}{1}
 \item
   begins with 2
@@ -388,14 +405,18 @@ Same thing but with paragraphs:
 
   with a continuation
 
-  \begin{enumerate}[i.]
+  \begin{enumerate}
+  \def\labelenumii{\roman{enumii}.}
   \setcounter{enumii}{3}
+  \itemsep1pt\parskip0pt\parsep0pt
   \item
     sublist with roman numerals, starting with 4
   \item
     more items
 
-    \begin{enumerate}[(A)]
+    \begin{enumerate}
+    \def\labelenumiii{(\Alph{enumiii})}
+    \itemsep1pt\parskip0pt\parsep0pt
     \item
       a subsublist
     \item
@@ -406,21 +427,29 @@ Same thing but with paragraphs:
 
 Nesting:
 
-\begin{enumerate}[A.]
+\begin{enumerate}
+\def\labelenumi{\Alph{enumi}.}
+\itemsep1pt\parskip0pt\parsep0pt
 \item
   Upper Alpha
 
-  \begin{enumerate}[I.]
+  \begin{enumerate}
+  \def\labelenumii{\Roman{enumii}.}
+  \itemsep1pt\parskip0pt\parsep0pt
   \item
     Upper Roman.
 
-    \begin{enumerate}[(1)]
+    \begin{enumerate}
+    \def\labelenumiii{(\arabic{enumiii})}
     \setcounter{enumiii}{5}
+    \itemsep1pt\parskip0pt\parsep0pt
     \item
       Decimal start with 6
 
-      \begin{enumerate}[a)]
+      \begin{enumerate}
+      \def\labelenumiv{\alph{enumiv})}
       \setcounter{enumiv}{2}
+      \itemsep1pt\parskip0pt\parsep0pt
       \item
         Lower alpha with paren
       \end{enumerate}
@@ -431,12 +460,14 @@ Nesting:
 Autonumbering:
 
 \begin{enumerate}
+\itemsep1pt\parskip0pt\parsep0pt
 \item
   Autonumber.
 \item
   More.
 
   \begin{enumerate}
+  \itemsep1pt\parskip0pt\parsep0pt
   \item
     Nested.
   \end{enumerate}
@@ -455,6 +486,7 @@ B. Williams
 Tight using spaces:
 
 \begin{description}
+\itemsep1pt\parskip0pt\parsep0pt
 \item[apple]
 red fruit
 \item[orange]
@@ -466,6 +498,7 @@ yellow fruit
 Tight using tabs:
 
 \begin{description}
+\itemsep1pt\parskip0pt\parsep0pt
 \item[apple]
 red fruit
 \item[orange]
@@ -507,6 +540,7 @@ orange block quote
 Multiple definitions, tight:
 
 \begin{description}
+\itemsep1pt\parskip0pt\parsep0pt
 \item[apple]
 red fruit
 
@@ -540,7 +574,9 @@ computer
 \item[orange]
 orange fruit
 
-\begin{enumerate}[1.]
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\itemsep1pt\parskip0pt\parsep0pt
 \item
   sublist
 \item
@@ -666,6 +702,7 @@ Ellipses\ldots{}and\ldots{}and\ldots{}.
 \section{LaTeX}
 
 \begin{itemize}
+\itemsep1pt\parskip0pt\parsep0pt
 \item
   \cite[22-23]{smith.1899}
 \item
@@ -688,6 +725,7 @@ Ellipses\ldots{}and\ldots{}and\ldots{}.
 These shouldn't be math:
 
 \begin{itemize}
+\itemsep1pt\parskip0pt\parsep0pt
 \item
   To get the famous equation, write \texttt{\$e = mc\^{}2\$}.
 \item
@@ -714,6 +752,7 @@ Cat    & 1      \\ \hline
 Here is some unicode:
 
 \begin{itemize}
+\itemsep1pt\parskip0pt\parsep0pt
 \item
   I hat: Î
 \item
@@ -786,7 +825,7 @@ Just a \href{/url/}{URL}.
 
 \href{/url/}{URL and title}
 
-\href{/url/with\_underscore}{with\_underscore}
+\href{/url/with_underscore}{with\_underscore}
 
 \href{mailto:nobody@nowhere.net}{Email link}
 
@@ -834,9 +873,10 @@ Here's an \href{/script?foo=1\&bar=2}{inline link in pointy braces}.
 
 \subsection{Autolinks}
 
-With an ampersand: \url{http://example.com/?foo=1&bar=2}
+With an ampersand: \url{http://example.com/?foo=1\&bar=2}
 
 \begin{itemize}
+\itemsep1pt\parskip0pt\parsep0pt
 \item
   In a list?
 \item
@@ -845,8 +885,7 @@ With an ampersand: \url{http://example.com/?foo=1&bar=2}
   It should.
 \end{itemize}
 
-An e-mail address:
-\href{mailto:nobody@nowhere.net}{\texttt{nobody@nowhere.net}}
+An e-mail address: \href{mailto:nobody@nowhere.net}{nobody@nowhere.net}
 
 \begin{quote}
 Blockquoted: \url{http://example.com/}
@@ -900,7 +939,9 @@ note.\footnote{This is \emph{easier} to type. Inline notes may contain
 Notes can go in quotes.\footnote{In quote.}
 \end{quote}
 
-\begin{enumerate}[1.]
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\itemsep1pt\parskip0pt\parsep0pt
 \item
   And in list items.\footnote{In list.}
 \end{enumerate}

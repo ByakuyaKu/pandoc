@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 {-
 Copyright (C) 2008-2010 John MacFarlane <jgm@berkeley.edu>
 
@@ -27,55 +28,45 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 Conversion of 'Pandoc' documents to ODT.
 -}
-{-# LANGUAGE ScopedTypeVariables #-}
 module Text.Pandoc.Writers.ODT ( writeODT ) where
 import Data.IORef
 import Data.List ( isPrefixOf )
-import System.FilePath ( (</>), takeExtension )
 import qualified Data.ByteString.Lazy as B
-import Data.ByteString.Lazy.UTF8 ( fromString )
+import Text.Pandoc.UTF8 ( fromStringLazy )
 import Codec.Archive.Zip
-import Data.Time.Clock.POSIX
-import Paths_pandoc ( getDataFileName )
-import Text.Pandoc.Shared ( WriterOptions(..) )
-import Text.Pandoc.ImageSize ( readImageSize, sizeInPoints )
+import Text.Pandoc.Options ( WriterOptions(..) )
+import Text.Pandoc.Shared ( stringify, readDataFile, fetchItem, warn )
+import Text.Pandoc.ImageSize ( imageSize, sizeInPoints )
 import Text.Pandoc.MIME ( getMimeType )
 import Text.Pandoc.Definition
 import Text.Pandoc.Generic
 import Text.Pandoc.Writers.OpenDocument ( writeOpenDocument )
-import System.Directory
 import Control.Monad (liftM)
-import Network.URI ( unEscapeString )
+import Control.Monad.Trans (liftIO)
 import Text.Pandoc.XML
 import Text.Pandoc.Pretty
-import qualified Control.Exception as E (catch, IOException)
+import qualified Control.Exception as E
+import Data.Time.Clock.POSIX ( getPOSIXTime )
+import System.FilePath ( takeExtension )
 
 -- | Produce an ODT file from a Pandoc document.
-writeODT :: Maybe FilePath -- ^ Path specified by --reference-odt
-         -> WriterOptions  -- ^ Writer options
+writeODT :: WriterOptions  -- ^ Writer options
          -> Pandoc         -- ^ Document to convert
          -> IO B.ByteString
-writeODT mbRefOdt opts doc = do
+writeODT opts doc@(Pandoc (Meta title _ _) _) = do
   let datadir = writerUserDataDir opts
   refArchive <- liftM toArchive $
-       case mbRefOdt of
+       case writerReferenceODT opts of
              Just f -> B.readFile f
-             Nothing -> do
-               let defaultODT = getDataFileName "reference.odt" >>= B.readFile
-               case datadir of
-                     Nothing  -> defaultODT
-                     Just d   -> do
-                        exists <- doesFileExist (d </> "reference.odt")
-                        if exists
-                           then B.readFile (d </> "reference.odt")
-                           else defaultODT
+             Nothing -> (B.fromChunks . (:[])) `fmap`
+                           readDataFile datadir "reference.odt"
   -- handle pictures
   picEntriesRef <- newIORef ([] :: [Entry])
   let sourceDir = writerSourceDirectory opts
   doc' <- bottomUpM (transformPic sourceDir picEntriesRef) doc
   let newContents = writeOpenDocument opts{writerWrapText = False} doc'
   epochtime <- floor `fmap` getPOSIXTime
-  let contentEntry = toEntry "content.xml" epochtime $ fromString newContents
+  let contentEntry = toEntry "content.xml" epochtime $ fromStringLazy newContents
   picEntries <- readIORef picEntriesRef
   let archive = foldr addEntryToArchive refArchive $ contentEntry : picEntries
   -- construct META-INF/manifest.xml based on archive
@@ -87,7 +78,7 @@ writeODT mbRefOdt opts doc = do
                                      ]
   let files = [ ent | ent <- filesInArchive archive, not ("META-INF" `isPrefixOf` ent) ]
   let manifestEntry = toEntry "META-INF/manifest.xml" epochtime
-        $ fromString $ show
+        $ fromStringLazy $ render Nothing
         $ text "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
         $$
          ( inTags True "manifest:manifest"
@@ -100,21 +91,43 @@ writeODT mbRefOdt opts doc = do
               )
          )
   let archive' = addEntryToArchive manifestEntry archive
-  return $ fromArchive archive'
+  let metaEntry = toEntry "meta.xml" epochtime
+       $ fromStringLazy $ render Nothing
+       $ text "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+       $$
+        ( inTags True "office:document-meta"
+           [("xmlns:office","urn:oasis:names:tc:opendocument:xmlns:office:1.0")
+           ,("xmlns:xlink","http://www.w3.org/1999/xlink")
+           ,("xmlns:dc","http://purl.org/dc/elements/1.1/")
+           ,("xmlns:meta","urn:oasis:names:tc:opendocument:xmlns:meta:1.0")
+           ,("xmlns:ooo","http://openoffice.org/2004/office")
+           ,("xmlns:grddl","http://www.w3.org/2003/g/data-view#")
+           ,("office:version","1.2")]
+           $ ( inTagsSimple "office:meta"
+                $ ( inTagsSimple "dc:title" (text $ escapeStringForXML (stringify title))
+                  )
+             )
+        )
+  let archive'' = addEntryToArchive metaEntry archive'
+  return $ fromArchive archive''
 
 transformPic :: FilePath -> IORef [Entry] -> Inline -> IO Inline
-transformPic sourceDir entriesRef (Image lab (src,tit)) = do
-  let src' = unEscapeString src
-  mbSize <- readImageSize src'
-  let tit' = case mbSize of
-                  Just s   -> let (w,h) = sizeInPoints s
-                              in  show w ++ "x" ++ show h
-                  Nothing  -> tit
-  entries <- readIORef entriesRef
-  let newsrc = "Pictures/" ++ show (length entries) ++ takeExtension src'
-  E.catch (readEntry [] (sourceDir </> src') >>= \entry ->
-           modifyIORef entriesRef (entry{ eRelativePath = newsrc } :) >>
-           return (Image lab (newsrc, tit')))
-        (\(_::E.IOException) -> return (Emph lab))
+transformPic sourceDir entriesRef (Image lab (src,_)) = do
+  res <- liftIO $ E.try $ fetchItem sourceDir src
+  case res of
+     Left (_ :: E.SomeException) -> do
+       liftIO $ warn $ "Could not find image `" ++ src ++ "', skipping..."
+       return $ Emph lab
+     Right (img, _) -> do
+       let size = imageSize img
+       let (w,h) = maybe (0,0) id $ sizeInPoints `fmap` size
+       let tit' = show w ++ "x" ++ show h
+       entries <- readIORef entriesRef
+       let newsrc = "Pictures/" ++ show (length entries) ++ takeExtension src
+       let toLazy = B.fromChunks . (:[])
+       epochtime <- floor `fmap` getPOSIXTime
+       let entry = toEntry newsrc epochtime $ toLazy img
+       modifyIORef entriesRef (entry:)
+       return $ Image lab (newsrc, tit')
 transformPic _ _ x = return x
 

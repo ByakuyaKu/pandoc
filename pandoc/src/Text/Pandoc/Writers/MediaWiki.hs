@@ -17,9 +17,9 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 -}
 
 {- |
-   Module      : Text.Pandoc.Writers.MediaWiki 
+   Module      : Text.Pandoc.Writers.MediaWiki
    Copyright   : Copyright (C) 2008-2010 John MacFarlane
-   License     : GNU GPL, version 2 or above 
+   License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
    Stability   : alpha
@@ -31,7 +31,8 @@ MediaWiki:  <http://www.mediawiki.org/wiki/MediaWiki>
 -}
 module Text.Pandoc.Writers.MediaWiki ( writeMediaWiki ) where
 import Text.Pandoc.Definition
-import Text.Pandoc.Shared 
+import Text.Pandoc.Options
+import Text.Pandoc.Shared
 import Text.Pandoc.Templates (renderTemplate)
 import Text.Pandoc.XML ( escapeStringForXML )
 import Data.List ( intersect, intercalate )
@@ -46,9 +47,9 @@ data WriterState = WriterState {
 
 -- | Convert Pandoc to MediaWiki.
 writeMediaWiki :: WriterOptions -> Pandoc -> String
-writeMediaWiki opts document = 
-  evalState (pandocToMediaWiki opts document) 
-            (WriterState { stNotes = False, stListLevel = [], stUseTags = False }) 
+writeMediaWiki opts document =
+  evalState (pandocToMediaWiki opts document)
+            (WriterState { stNotes = False, stListLevel = [], stUseTags = False })
 
 -- | Return MediaWiki representation of document.
 pandocToMediaWiki :: WriterOptions -> Pandoc -> State WriterState String
@@ -57,7 +58,7 @@ pandocToMediaWiki opts (Pandoc _ blocks) = do
   notesExist <- get >>= return . stNotes
   let notes = if notesExist
                  then "\n<references />"
-                 else "" 
+                 else ""
   let main = body ++ notes
   let context = writerVariables opts ++
                 [ ("body", main) ] ++
@@ -70,22 +71,24 @@ pandocToMediaWiki opts (Pandoc _ blocks) = do
 escapeString :: String -> String
 escapeString =  escapeStringForXML
 
--- | Convert Pandoc block element to MediaWiki. 
+-- | Convert Pandoc block element to MediaWiki.
 blockToMediaWiki :: WriterOptions -- ^ Options
                 -> Block         -- ^ Block element
-                -> State WriterState String 
+                -> State WriterState String
 
 blockToMediaWiki _ Null = return ""
 
-blockToMediaWiki opts (Plain inlines) = 
+blockToMediaWiki opts (Plain inlines) =
   inlineListToMediaWiki opts inlines
 
-blockToMediaWiki opts (Para [Image txt (src,tit)]) = do
-  capt <- inlineListToMediaWiki opts txt 
+-- title beginning with fig: indicates that the image is a figure
+blockToMediaWiki opts (Para [Image txt (src,'f':'i':'g':':':tit)]) = do
+  capt <- if null txt
+             then return ""
+             else ("|caption " ++) `fmap` inlineListToMediaWiki opts txt
   let opt = if null txt
                then ""
-               else "|alt=" ++ if null tit then capt else tit ++
-                    "|caption " ++ capt
+               else "|alt=" ++ if null tit then capt else tit ++ capt
   return $ "[[Image:" ++ src ++ "|frame|none" ++ opt ++ "]]\n"
 
 blockToMediaWiki opts (Para inlines) = do
@@ -102,7 +105,7 @@ blockToMediaWiki _ (RawBlock _ _) = return ""
 
 blockToMediaWiki _ HorizontalRule = return "\n-----\n"
 
-blockToMediaWiki opts (Header level inlines) = do
+blockToMediaWiki opts (Header level _ inlines) = do
   contents <- inlineListToMediaWiki opts inlines
   let eqs = replicate level '='
   return $ eqs ++ " " ++ contents ++ " " ++ eqs ++ "\n"
@@ -115,7 +118,7 @@ blockToMediaWiki _ (CodeBlock (_,classes,_) str) = do
                        "javascript", "latex", "lisp", "lua", "matlab", "mirc", "mpasm", "mysql", "nsis", "objc",
                        "ocaml", "ocaml-brief", "oobas", "oracle8", "pascal", "perl", "php", "php-brief", "plsql",
                        "python", "qbasic", "rails", "reg", "robots", "ruby", "sas", "scheme", "sdlbasic",
-                       "smalltalk", "smarty", "sql", "tcl", "", "thinbasic", "tsql", "vb", "vbnet", "vhdl", 
+                       "smalltalk", "smarty", "sql", "tcl", "", "thinbasic", "tsql", "vb", "vbnet", "vhdl",
                        "visualfoxpro", "winbatch", "xml", "xpp", "z80"]
   let (beg, end) = if null at
                       then ("<pre" ++ if null classes then ">" else " class=\"" ++ unwords classes ++ "\">", "</pre>")
@@ -124,7 +127,7 @@ blockToMediaWiki _ (CodeBlock (_,classes,_) str) = do
 
 blockToMediaWiki opts (BlockQuote blocks) = do
   contents <- blockListToMediaWiki opts blocks
-  return $ "<blockquote>" ++ contents ++ "</blockquote>" 
+  return $ "<blockquote>" ++ contents ++ "</blockquote>"
 
 blockToMediaWiki opts (Table capt aligns widths headers rows') = do
   let alignStrings = map alignmentToString aligns
@@ -221,7 +224,7 @@ listItemToMediaWiki opts items = do
 
 -- | Convert definition list item (label, list of blocks) to MediaWiki.
 definitionListItemToMediaWiki :: WriterOptions
-                             -> ([Inline],[[Block]]) 
+                             -> ([Inline],[[Block]])
                              -> State WriterState String
 definitionListItemToMediaWiki opts (label, items) = do
   labelText <- inlineListToMediaWiki opts label
@@ -242,7 +245,7 @@ isSimpleList x =
        BulletList items                 -> all isSimpleListItem items
        OrderedList (num, sty, _) items  -> all isSimpleListItem items &&
                                             num == 1 && sty `elem` [DefaultStyle, Decimal]
-       DefinitionList items             -> all isSimpleListItem $ concatMap snd items 
+       DefinitionList items             -> all isSimpleListItem $ concatMap snd items
        _                                -> False
 
 -- | True if list item can be handled with the simple wiki syntax.  False if
@@ -287,8 +290,8 @@ tableRowToMediaWiki opts alignStrings rownum cols' = do
                       0                  -> "header"
                       x | x `rem` 2 == 1 -> "odd"
                       _                  -> "even"
-  cols'' <- sequence $ zipWith 
-            (\alignment item -> tableItemToMediaWiki opts celltype alignment item) 
+  cols'' <- sequence $ zipWith
+            (\alignment item -> tableItemToMediaWiki opts celltype alignment item)
             alignStrings cols'
   return $ "<tr class=\"" ++ rowclass ++ "\">\n" ++ unlines cols'' ++ "</tr>"
 
@@ -313,7 +316,7 @@ tableItemToMediaWiki opts celltype align' item = do
 -- | Convert list of Pandoc block elements to MediaWiki.
 blockListToMediaWiki :: WriterOptions -- ^ Options
                     -> [Block]       -- ^ List of block elements
-                    -> State WriterState String 
+                    -> State WriterState String
 blockListToMediaWiki opts blocks =
   mapM (blockToMediaWiki opts) blocks >>= return . vcat
 
@@ -325,9 +328,9 @@ inlineListToMediaWiki opts lst =
 -- | Convert Pandoc inline element to MediaWiki.
 inlineToMediaWiki :: WriterOptions -> Inline -> State WriterState String
 
-inlineToMediaWiki opts (Emph lst) = do 
+inlineToMediaWiki opts (Emph lst) = do
   contents <- inlineListToMediaWiki opts lst
-  return $ "''" ++ contents ++ "''" 
+  return $ "''" ++ contents ++ "''"
 
 inlineToMediaWiki opts (Strong lst) = do
   contents <- inlineListToMediaWiki opts lst
@@ -358,25 +361,25 @@ inlineToMediaWiki opts (Quoted DoubleQuote lst) = do
 inlineToMediaWiki opts (Cite _  lst) = inlineListToMediaWiki opts lst
 
 inlineToMediaWiki _ (Code _ str) =
-  return $ "<tt>" ++ (escapeString str) ++ "</tt>"
+  return $ "<code>" ++ (escapeString str) ++ "</code>"
 
 inlineToMediaWiki _ (Str str) = return $ escapeString str
 
 inlineToMediaWiki _ (Math _ str) = return $ "<math>" ++ str ++ "</math>"
                                  -- note:  str should NOT be escaped
 
-inlineToMediaWiki _ (RawInline "mediawiki" str) = return str 
-inlineToMediaWiki _ (RawInline "html" str) = return str 
+inlineToMediaWiki _ (RawInline "mediawiki" str) = return str
+inlineToMediaWiki _ (RawInline "html" str) = return str
 inlineToMediaWiki _ (RawInline _ _) = return ""
 
-inlineToMediaWiki _ (LineBreak) = return "<br />\n"
+inlineToMediaWiki _ (LineBreak) = return "<br />"
 
 inlineToMediaWiki _ Space = return " "
 
 inlineToMediaWiki opts (Link txt (src, _)) = do
   label <- inlineListToMediaWiki opts txt
   case txt of
-     [Code _ s] | s == src -> return src
+     [Str s] | escapeURI s == src -> return src
      _  -> if isURI src
               then return $ "[" ++ src ++ " " ++ label ++ "]"
               else return $ "[[" ++ src' ++ "|" ++ label ++ "]]"
@@ -392,7 +395,7 @@ inlineToMediaWiki opts (Image alt (source, tit)) = do
                else "|" ++ tit
   return $ "[[Image:" ++ source ++ txt ++ "]]"
 
-inlineToMediaWiki opts (Note contents) = do 
+inlineToMediaWiki opts (Note contents) = do
   contents' <- blockListToMediaWiki opts contents
   modify (\s -> s { stNotes = True })
   return $ "<ref>" ++ contents' ++ "</ref>"
