@@ -1,2 +1,2 @@
 tar.gz: pandoc
-copy: pandoc.watch
+copy?: pandoc.watch
