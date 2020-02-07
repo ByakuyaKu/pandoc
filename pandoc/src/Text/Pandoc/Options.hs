@@ -1,24 +1,13 @@
-{-
-Copyright (C) 2012 John MacFarlane <jgm@berkeley.edu>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
--}
-
+{-# LANGUAGE CPP                #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric      #-}
+{-# LANGUAGE NoImplicitPrelude  #-}
+#ifdef DERIVE_JSON_VIA_TH
+{-# LANGUAGE TemplateHaskell    #-}
+#endif
 {- |
    Module      : Text.Pandoc.Options
-   Copyright   : Copyright (C) 2012 John MacFarlane
+   Copyright   : Copyright (C) 2012-2019 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
@@ -28,324 +17,262 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 Data structures and functions for representing parser and writer
 options.
 -}
-module Text.Pandoc.Options ( Extension(..)
-                           , pandocExtensions
-                           , strictExtensions
-                           , phpMarkdownExtraExtensions
-                           , githubMarkdownExtensions
-                           , multimarkdownExtensions
+module Text.Pandoc.Options ( module Text.Pandoc.Extensions
                            , ReaderOptions(..)
                            , HTMLMathMethod (..)
                            , CiteMethod (..)
                            , ObfuscationMethod (..)
                            , HTMLSlideVariant (..)
                            , EPUBVersion (..)
+                           , WrapOption (..)
+                           , TopLevelDivision (..)
                            , WriterOptions (..)
+                           , TrackChanges (..)
+                           , ReferenceLocation (..)
                            , def
                            , isEnabled
                            ) where
-import Data.Set (Set)
-import qualified Data.Set as Set
+import Prelude
+import Data.Data (Data)
 import Data.Default
+import qualified Data.Set as Set
+import Data.Typeable (Typeable)
+import GHC.Generics (Generic)
+import Skylighting (SyntaxMap, defaultSyntaxMap)
+import Text.Pandoc.Extensions
 import Text.Pandoc.Highlighting (Style, pygments)
-import qualified Text.CSL as CSL
 
--- | Individually selectable syntax extensions.
-data Extension =
-      Ext_footnotes           -- ^ Pandoc/PHP/MMD style footnotes
-    | Ext_inline_notes        -- ^ Pandoc-style inline notes
-    | Ext_pandoc_title_block  -- ^ Pandoc title block
-    | Ext_mmd_title_block     -- ^ Multimarkdown metadata block
-    | Ext_table_captions      -- ^ Pandoc-style table captions
-    | Ext_implicit_figures    -- ^ A paragraph with just an image is a figure
-    | Ext_simple_tables       -- ^ Pandoc-style simple tables
-    | Ext_multiline_tables    -- ^ Pandoc-style multiline tables
-    | Ext_grid_tables         -- ^ Grid tables (pandoc, reST)
-    | Ext_pipe_tables         -- ^ Pipe tables (as in PHP markdown extra)
-    | Ext_citations           -- ^ Pandoc/citeproc citations
-    | Ext_raw_tex             -- ^ Allow raw TeX (other than math)
-    | Ext_raw_html            -- ^ Allow raw HTML
-    | Ext_tex_math_dollars    -- ^ TeX math between $..$ or $$..$$
-    | Ext_tex_math_single_backslash  -- ^ TeX math btw \(..\) \[..\]
-    | Ext_tex_math_double_backslash  -- ^ TeX math btw \\(..\\) \\[..\\]
-    | Ext_latex_macros        -- ^ Parse LaTeX macro definitions (for math only)
-    | Ext_fenced_code_blocks  -- ^ Parse fenced code blocks
-    | Ext_fenced_code_attributes  -- ^ Allow attributes on fenced code blocks
-    | Ext_backtick_code_blocks    -- ^ Github style ``` code blocks
-    | Ext_inline_code_attributes  -- ^ Allow attributes on inline code
-    | Ext_markdown_in_html_blocks -- ^ Interpret as markdown inside HTML blocks
-    | Ext_markdown_attribute      -- ^ Interpret text inside HTML as markdown
-                                  --   iff container has attribute 'markdown'
-    | Ext_escaped_line_breaks     -- ^ Treat a backslash at EOL as linebreak
-    | Ext_link_attributes     -- ^ MMD style reference link attributes
-    | Ext_autolink_bare_uris  -- ^ Make all absolute URIs into links
-    | Ext_fancy_lists         -- ^ Enable fancy list numbers and delimiters
-    | Ext_startnum            -- ^ Make start number of ordered list significant
-    | Ext_definition_lists    -- ^ Definition lists as in pandoc, mmd, php
-    | Ext_example_lists       -- ^ Markdown-style numbered examples
-    | Ext_all_symbols_escapable  -- ^ Make all non-alphanumerics escapable
-    | Ext_intraword_underscores  -- ^ Treat underscore inside word as literal
-    | Ext_blank_before_blockquote -- ^ Require blank line before a blockquote
-    | Ext_blank_before_header     -- ^ Require blank line before a header
-    | Ext_strikeout           -- ^ Strikeout using ~~this~~ syntax
-    | Ext_superscript         -- ^ Superscript using ^this^ syntax
-    | Ext_subscript           -- ^ Subscript using ~this~ syntax
-    | Ext_hard_line_breaks    -- ^ All newlines become hard line breaks
-    | Ext_literate_haskell    -- ^ Enable literate Haskell conventions
-    | Ext_abbreviations       -- ^ PHP markdown extra abbreviation definitions
-    | Ext_auto_identifiers    -- ^ Automatic identifiers for headers
-    | Ext_header_attributes   -- ^ Explicit header attributes {#id .class k=v}
-    | Ext_mmd_header_identifiers -- ^ Multimarkdown style header identifiers [myid]
-    | Ext_implicit_header_references -- ^ Implicit reference links for headers
-    | Ext_line_blocks         -- ^ RST style line blocks
-    deriving (Show, Read, Enum, Eq, Ord, Bounded)
+#ifdef DERIVE_JSON_VIA_TH
+import Data.Aeson.TH (deriveJSON, defaultOptions)
+#else
+import Data.Aeson (FromJSON (..), ToJSON (..),
+                   defaultOptions, genericToEncoding)
+#endif
 
-pandocExtensions :: Set Extension
-pandocExtensions = Set.fromList
-  [ Ext_footnotes
-  , Ext_inline_notes
-  , Ext_pandoc_title_block
-  , Ext_table_captions
-  , Ext_implicit_figures
-  , Ext_simple_tables
-  , Ext_multiline_tables
-  , Ext_grid_tables
-  , Ext_pipe_tables
-  , Ext_citations
-  , Ext_raw_tex
-  , Ext_raw_html
-  , Ext_tex_math_dollars
-  , Ext_latex_macros
-  , Ext_fenced_code_blocks
-  , Ext_fenced_code_attributes
-  , Ext_backtick_code_blocks
-  , Ext_inline_code_attributes
-  , Ext_markdown_in_html_blocks
-  , Ext_escaped_line_breaks
-  , Ext_fancy_lists
-  , Ext_startnum
-  , Ext_definition_lists
-  , Ext_example_lists
-  , Ext_all_symbols_escapable
-  , Ext_intraword_underscores
-  , Ext_blank_before_blockquote
-  , Ext_blank_before_header
-  , Ext_strikeout
-  , Ext_superscript
-  , Ext_subscript
-  , Ext_auto_identifiers
-  , Ext_header_attributes
-  , Ext_implicit_header_references
-  , Ext_line_blocks
-  ]
-
-phpMarkdownExtraExtensions :: Set Extension
-phpMarkdownExtraExtensions = Set.fromList
-  [ Ext_footnotes
-  , Ext_pipe_tables
-  , Ext_raw_html
-  , Ext_markdown_attribute
-  , Ext_fenced_code_blocks
-  , Ext_definition_lists
-  , Ext_intraword_underscores
-  , Ext_header_attributes
-  , Ext_abbreviations
-  ]
-
-githubMarkdownExtensions :: Set Extension
-githubMarkdownExtensions = Set.fromList
-  [ Ext_pipe_tables
-  , Ext_raw_html
-  , Ext_tex_math_single_backslash
-  , Ext_fenced_code_blocks
-  , Ext_fenced_code_attributes
-  , Ext_backtick_code_blocks
-  , Ext_autolink_bare_uris
-  , Ext_intraword_underscores
-  , Ext_strikeout
-  , Ext_hard_line_breaks
-  ]
-
-multimarkdownExtensions :: Set Extension
-multimarkdownExtensions = Set.fromList
-  [ Ext_pipe_tables
-  , Ext_raw_html
-  , Ext_markdown_attribute
-  , Ext_link_attributes
-  , Ext_raw_tex
-  , Ext_tex_math_double_backslash
-  , Ext_intraword_underscores
-  , Ext_mmd_title_block
-  , Ext_footnotes
-  , Ext_definition_lists
-  , Ext_all_symbols_escapable
-  , Ext_implicit_header_references
-  , Ext_auto_identifiers
-  , Ext_mmd_header_identifiers
-  ]
-
-strictExtensions :: Set Extension
-strictExtensions = Set.fromList
-  [ Ext_raw_html ]
+class HasSyntaxExtensions a where
+  getExtensions :: a -> Extensions
 
 data ReaderOptions = ReaderOptions{
-         readerExtensions      :: Set Extension  -- ^ Syntax extensions
-       , readerSmart           :: Bool -- ^ Smart punctuation
-       , readerStrict          :: Bool -- ^ FOR TRANSITION ONLY
-       , readerStandalone      :: Bool -- ^ Standalone document with header
-       , readerParseRaw        :: Bool -- ^ Parse raw HTML, LaTeX
-       , readerColumns         :: Int  -- ^ Number of columns in terminal
-       , readerTabStop         :: Int  -- ^ Tab stop
-       , readerOldDashes       :: Bool -- ^ Use pandoc <= 1.8.2.1 behavior
-                                       --   in parsing dashes; -- is em-dash;
-                                       --   - before numerial is en-dash
-       , readerReferences      :: [CSL.Reference]  -- ^ Bibliographic references
-       , readerCitationStyle   :: Maybe CSL.Style -- ^ Citation style
-       , readerApplyMacros     :: Bool -- ^ Apply macros to TeX math
-       , readerIndentedCodeClasses :: [String] -- ^ Default classes for
+         readerExtensions            :: Extensions  -- ^ Syntax extensions
+       , readerStandalone            :: Bool -- ^ Standalone document with header
+       , readerColumns               :: Int  -- ^ Number of columns in terminal
+       , readerTabStop               :: Int  -- ^ Tab stop
+       , readerIndentedCodeClasses   :: [String] -- ^ Default classes for
                                        -- indented code blocks
+       , readerAbbreviations         :: Set.Set String -- ^ Strings to treat as abbreviations
        , readerDefaultImageExtension :: String -- ^ Default extension for images
-} deriving (Show, Read)
+       , readerTrackChanges          :: TrackChanges -- ^ Track changes setting for docx
+       , readerStripComments         :: Bool -- ^ Strip HTML comments instead of parsing as raw HTML
+} deriving (Show, Read, Data, Typeable, Generic)
+
+instance HasSyntaxExtensions ReaderOptions where
+  getExtensions opts = readerExtensions opts
 
 instance Default ReaderOptions
   where def = ReaderOptions{
-                 readerExtensions            = pandocExtensions
-               , readerSmart                 = False
-               , readerStrict                = False
+                 readerExtensions            = emptyExtensions
                , readerStandalone            = False
-               , readerParseRaw              = False
                , readerColumns               = 80
                , readerTabStop               = 4
-               , readerOldDashes             = False
-               , readerReferences            = []
-               , readerCitationStyle         = Nothing
-               , readerApplyMacros           = True
                , readerIndentedCodeClasses   = []
+               , readerAbbreviations         = defaultAbbrevs
                , readerDefaultImageExtension = ""
+               , readerTrackChanges          = AcceptChanges
+               , readerStripComments         = False
                }
+
+defaultAbbrevs :: Set.Set String
+defaultAbbrevs = Set.fromList
+                 [ "Mr.", "Mrs.", "Ms.", "Capt.", "Dr.", "Prof.",
+                   "Gen.", "Gov.", "e.g.", "i.e.", "Sgt.", "St.",
+                   "vol.", "vs.", "Sen.", "Rep.", "Pres.", "Hon.",
+                   "Rev.", "Ph.D.", "M.D.", "M.A.", "p.", "pp.",
+                   "ch.", "sec.", "cf.", "cp."]
 
 --
 -- Writer options
 --
 
-data EPUBVersion = EPUB2 | EPUB3 deriving (Eq, Show, Read)
+data EPUBVersion = EPUB2 | EPUB3 deriving (Eq, Show, Read, Data, Typeable, Generic)
 
 data HTMLMathMethod = PlainMath
-                    | LaTeXMathML (Maybe String)  -- url of LaTeXMathML.js
-                    | JsMath (Maybe String)       -- url of jsMath load script
-                    | GladTeX
                     | WebTeX String               -- url of TeX->image script.
-                    | MathML (Maybe String)       -- url of MathMLinHTML.js
+                    | GladTeX
+                    | MathML
                     | MathJax String              -- url of MathJax.js
-                    deriving (Show, Read, Eq)
+                    | KaTeX String                -- url of KaTeX files
+                    deriving (Show, Read, Eq, Data, Typeable, Generic)
 
 data CiteMethod = Citeproc                        -- use citeproc to render them
                   | Natbib                        -- output natbib cite commands
                   | Biblatex                      -- output biblatex cite commands
-                deriving (Show, Read, Eq)
+                deriving (Show, Read, Eq, Data, Typeable, Generic)
 
 -- | Methods for obfuscating email addresses in HTML.
 data ObfuscationMethod = NoObfuscation
                        | ReferenceObfuscation
                        | JavascriptObfuscation
-                       deriving (Show, Read, Eq)
+                       deriving (Show, Read, Eq, Data, Typeable, Generic)
 
 -- | Varieties of HTML slide shows.
 data HTMLSlideVariant = S5Slides
                       | SlidySlides
                       | SlideousSlides
                       | DZSlides
+                      | RevealJsSlides
                       | NoSlides
-                      deriving (Show, Read, Eq)
+                      deriving (Show, Read, Eq, Data, Typeable, Generic)
+
+-- | Options for accepting or rejecting MS Word track-changes.
+data TrackChanges = AcceptChanges
+                  | RejectChanges
+                  | AllChanges
+                  deriving (Show, Read, Eq, Data, Typeable, Generic)
+
+-- | Options for wrapping text in the output.
+data WrapOption = WrapAuto        -- ^ Automatically wrap to width
+                | WrapNone        -- ^ No non-semantic newlines
+                | WrapPreserve    -- ^ Preserve wrapping of input source
+                deriving (Show, Read, Eq, Data, Typeable, Generic)
+
+-- | Options defining the type of top-level headers.
+data TopLevelDivision = TopLevelPart      -- ^ Top-level headers become parts
+                      | TopLevelChapter   -- ^ Top-level headers become chapters
+                      | TopLevelSection   -- ^ Top-level headers become sections
+                      | TopLevelDefault   -- ^ Top-level type is determined via
+                                          --   heuristics
+                      deriving (Show, Read, Eq, Data, Typeable, Generic)
+
+-- | Locations for footnotes and references in markdown output
+data ReferenceLocation = EndOfBlock    -- ^ End of block
+                       | EndOfSection  -- ^ prior to next section header (or end of document)
+                       | EndOfDocument -- ^ at end of document
+                       deriving (Show, Read, Eq, Data, Typeable, Generic)
 
 -- | Options for writers
 data WriterOptions = WriterOptions
-  { writerStandalone       :: Bool   -- ^ Include header and footer
-  , writerTemplate         :: String -- ^ Template to use in standalone mode
-  , writerVariables        :: [(String, String)] -- ^ Variables to set in template
-  , writerTabStop          :: Int    -- ^ Tabstop for conversion btw spaces and tabs
-  , writerTableOfContents  :: Bool   -- ^ Include table of contents
-  , writerSlideVariant     :: HTMLSlideVariant -- ^ Are we writing S5, Slidy or Slideous?
-  , writerIncremental      :: Bool   -- ^ True if lists should be incremental
-  , writerHTMLMathMethod   :: HTMLMathMethod  -- ^ How to print math in HTML
-  , writerIgnoreNotes      :: Bool   -- ^ Ignore footnotes (used in making toc)
-  , writerNumberSections   :: Bool   -- ^ Number sections in LaTeX
-  , writerNumberOffset     :: [Int]  -- ^ Starting number for section, subsection, ...
-  , writerSectionDivs      :: Bool   -- ^ Put sections in div tags in HTML
-  , writerExtensions       :: Set Extension -- ^ Markdown extensions that can be used
-  , writerReferenceLinks   :: Bool   -- ^ Use reference links in writing markdown, rst
-  , writerWrapText         :: Bool   -- ^ Wrap text to line length
-  , writerColumns          :: Int    -- ^ Characters in a line (for text wrapping)
-  , writerEmailObfuscation :: ObfuscationMethod -- ^ How to obfuscate emails
-  , writerIdentifierPrefix :: String -- ^ Prefix for section & note ids in HTML
+  { writerTemplate          :: Maybe String -- ^ Template to use
+  , writerVariables         :: [(String, String)] -- ^ Variables to set in template
+  , writerTabStop           :: Int    -- ^ Tabstop for conversion btw spaces and tabs
+  , writerTableOfContents   :: Bool   -- ^ Include table of contents
+  , writerIncremental       :: Bool   -- ^ True if lists should be incremental
+  , writerHTMLMathMethod    :: HTMLMathMethod  -- ^ How to print math in HTML
+  , writerNumberSections    :: Bool   -- ^ Number sections in LaTeX
+  , writerNumberOffset      :: [Int]  -- ^ Starting number for section, subsection, ...
+  , writerSectionDivs       :: Bool   -- ^ Put sections in div tags in HTML
+  , writerExtensions        :: Extensions -- ^ Markdown extensions that can be used
+  , writerReferenceLinks    :: Bool   -- ^ Use reference links in writing markdown, rst
+  , writerDpi               :: Int    -- ^ Dpi for pixel to\/from inch\/cm conversions
+  , writerWrapText          :: WrapOption  -- ^ Option for wrapping text
+  , writerColumns           :: Int    -- ^ Characters in a line (for text wrapping)
+  , writerEmailObfuscation  :: ObfuscationMethod -- ^ How to obfuscate emails
+  , writerIdentifierPrefix  :: String -- ^ Prefix for section & note ids in HTML
                                      -- and for footnote marks in markdown
-  , writerSourceDirectory  :: FilePath -- ^ Directory path of 1st source file
-  , writerUserDataDir      :: Maybe FilePath -- ^ Path of user data directory
-  , writerCiteMethod       :: CiteMethod -- ^ How to print cites
-  , writerBiblioFiles      :: [FilePath] -- ^ Biblio files to use for citations
-  , writerHtml5            :: Bool       -- ^ Produce HTML5
-  , writerHtmlQTags        :: Bool       -- ^ Use @<q>@ tags for quotes in HTML
-  , writerBeamer           :: Bool       -- ^ Produce beamer LaTeX slide show
-  , writerSlideLevel       :: Maybe Int  -- ^ Force header level of slides
-  , writerChapters         :: Bool       -- ^ Use "chapter" for top-level sects
-  , writerListings         :: Bool       -- ^ Use listings package for code
-  , writerHighlight        :: Bool       -- ^ Highlight source code
-  , writerHighlightStyle   :: Style      -- ^ Style to use for highlighting
-  , writerSetextHeaders    :: Bool       -- ^ Use setext headers for levels 1-2 in markdown
-  , writerTeXLigatures     :: Bool       -- ^ Use tex ligatures quotes, dashes in latex
-  , writerEpubVersion      :: Maybe EPUBVersion -- ^ Nothing or EPUB version
-  , writerEpubMetadata     :: String     -- ^ Metadata to include in EPUB
-  , writerEpubStylesheet   :: Maybe String -- ^ EPUB stylesheet specified at command line
-  , writerEpubFonts        :: [FilePath] -- ^ Paths to fonts to embed
-  , writerEpubChapterLevel :: Int            -- ^ Header level for chapters (separate files)
-  , writerTOCDepth         :: Int            -- ^ Number of levels to include in TOC
-  , writerReferenceODT     :: Maybe FilePath -- ^ Path to reference ODT if specified
-  , writerReferenceDocx    :: Maybe FilePath -- ^ Ptah to reference DOCX if specified
-  } deriving Show
+  , writerCiteMethod        :: CiteMethod -- ^ How to print cites
+  , writerHtmlQTags         :: Bool       -- ^ Use @<q>@ tags for quotes in HTML
+  , writerSlideLevel        :: Maybe Int  -- ^ Force header level of slides
+  , writerTopLevelDivision  :: TopLevelDivision -- ^ Type of top-level divisions
+  , writerListings          :: Bool       -- ^ Use listings package for code
+  , writerHighlightStyle    :: Maybe Style  -- ^ Style to use for highlighting
+                                           -- (Nothing = no highlighting)
+  , writerSetextHeaders     :: Bool       -- ^ Use setext headers for levels 1-2 in markdown
+  , writerEpubSubdirectory  :: String       -- ^ Subdir for epub in OCF
+  , writerEpubMetadata      :: Maybe String -- ^ Metadata to include in EPUB
+  , writerEpubFonts         :: [FilePath] -- ^ Paths to fonts to embed
+  , writerEpubChapterLevel  :: Int            -- ^ Header level for chapters (separate files)
+  , writerTOCDepth          :: Int            -- ^ Number of levels to include in TOC
+  , writerReferenceDoc      :: Maybe FilePath -- ^ Path to reference document if specified
+  , writerReferenceLocation :: ReferenceLocation    -- ^ Location of footnotes and references for writing markdown
+  , writerSyntaxMap         :: SyntaxMap
+  , writerPreferAscii       :: Bool           -- ^ Prefer ASCII representations of characters when possible
+  } deriving (Show, Data, Typeable, Generic)
 
 instance Default WriterOptions where
-  def = WriterOptions { writerStandalone       = False
-                      , writerTemplate         = ""
+  def = WriterOptions { writerTemplate         = Nothing
                       , writerVariables        = []
                       , writerTabStop          = 4
                       , writerTableOfContents  = False
-                      , writerSlideVariant     = NoSlides
                       , writerIncremental      = False
                       , writerHTMLMathMethod   = PlainMath
-                      , writerIgnoreNotes      = False
                       , writerNumberSections   = False
                       , writerNumberOffset     = [0,0,0,0,0,0]
                       , writerSectionDivs      = False
-                      , writerExtensions       = pandocExtensions
+                      , writerExtensions       = emptyExtensions
                       , writerReferenceLinks   = False
-                      , writerWrapText         = True
+                      , writerDpi              = 96
+                      , writerWrapText         = WrapAuto
                       , writerColumns          = 72
-                      , writerEmailObfuscation = JavascriptObfuscation
+                      , writerEmailObfuscation = NoObfuscation
                       , writerIdentifierPrefix = ""
-                      , writerSourceDirectory  = "."
-                      , writerUserDataDir      = Nothing
                       , writerCiteMethod       = Citeproc
-                      , writerBiblioFiles      = []
-                      , writerHtml5            = False
                       , writerHtmlQTags        = False
-                      , writerBeamer           = False
                       , writerSlideLevel       = Nothing
-                      , writerChapters         = False
+                      , writerTopLevelDivision = TopLevelDefault
                       , writerListings         = False
-                      , writerHighlight        = False
-                      , writerHighlightStyle   = pygments
+                      , writerHighlightStyle   = Just pygments
                       , writerSetextHeaders    = True
-                      , writerTeXLigatures     = True
-                      , writerEpubVersion      = Nothing
-                      , writerEpubMetadata     = ""
-                      , writerEpubStylesheet   = Nothing
+                      , writerEpubSubdirectory = "EPUB"
+                      , writerEpubMetadata     = Nothing
                       , writerEpubFonts        = []
                       , writerEpubChapterLevel = 1
                       , writerTOCDepth         = 3
-                      , writerReferenceODT     = Nothing
-                      , writerReferenceDocx    = Nothing
+                      , writerReferenceDoc     = Nothing
+                      , writerReferenceLocation = EndOfDocument
+                      , writerSyntaxMap        = defaultSyntaxMap
+                      , writerPreferAscii      = False
                       }
 
+instance HasSyntaxExtensions WriterOptions where
+  getExtensions opts = writerExtensions opts
+
 -- | Returns True if the given extension is enabled.
-isEnabled :: Extension -> WriterOptions -> Bool
-isEnabled ext opts = ext `Set.member` (writerExtensions opts)
+isEnabled :: HasSyntaxExtensions a => Extension -> a -> Bool
+isEnabled ext opts = ext `extensionEnabled` getExtensions opts
+
+#ifdef DERIVE_JSON_VIA_TH
+$(deriveJSON defaultOptions ''ReaderOptions)
+$(deriveJSON defaultOptions ''HTMLMathMethod)
+$(deriveJSON defaultOptions ''CiteMethod)
+$(deriveJSON defaultOptions ''ObfuscationMethod)
+$(deriveJSON defaultOptions ''HTMLSlideVariant)
+$(deriveJSON defaultOptions ''TrackChanges)
+$(deriveJSON defaultOptions ''WrapOption)
+$(deriveJSON defaultOptions ''TopLevelDivision)
+$(deriveJSON defaultOptions ''ReferenceLocation)
+#else
+instance ToJSON CiteMethod where
+  toEncoding = genericToEncoding defaultOptions
+instance FromJSON CiteMethod
+
+instance ToJSON ReaderOptions where
+  toEncoding = genericToEncoding defaultOptions
+instance FromJSON ReaderOptions
+
+instance ToJSON ObfuscationMethod where
+  toEncoding = genericToEncoding defaultOptions
+instance FromJSON ObfuscationMethod
+
+instance ToJSON WrapOption where
+  toEncoding = genericToEncoding defaultOptions
+instance FromJSON WrapOption
+
+instance ToJSON HTMLMathMethod where
+  toEncoding = genericToEncoding defaultOptions
+instance FromJSON HTMLMathMethod
+
+instance ToJSON HTMLSlideVariant where
+  toEncoding = genericToEncoding defaultOptions
+instance FromJSON HTMLSlideVariant
+
+instance ToJSON TopLevelDivision where
+  toEncoding = genericToEncoding defaultOptions
+instance FromJSON TopLevelDivision
+
+instance ToJSON ReferenceLocation where
+  toEncoding = genericToEncoding defaultOptions
+instance FromJSON ReferenceLocation
+
+instance ToJSON TrackChanges where
+  toEncoding = genericToEncoding defaultOptions
+instance FromJSON TrackChanges
+#endif

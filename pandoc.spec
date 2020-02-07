@@ -1,14 +1,15 @@
-%define ghc_version 7.6.1
+%define ghc_version 8.6.4
 %define hsc_name ghc
 %define hsc_version %ghc_version
 %define hsc_namever %hsc_name
+%define ghc_namever %hsc_name%hsc_version
 %define f_pkg_name pandoc
 %define h_pkg_name pandoc
-%define pkg_libdir %_libdir/%hsc_name-%hsc_version/lib/%h_pkg_name-%version
+%define pkg_libdir %_libdir/%hsc_name-%hsc_version/%h_pkg_name-%version
 
 Name: pandoc
-Version: 1.11.1
-Release: alt2
+Version: 2.7.3
+Release: alt1
 Summary: Markup conversion tool for markdown
 
 Group: Publishing
@@ -20,7 +21,51 @@ Source100: pandoc.watch
 
 # Automatically added by buildreq on Mon Dec 24 2012
 # optimized out: ghc7.6.1 ghc7.6.1-blaze-builder ghc7.6.1-blaze-html ghc7.6.1-blaze-markup ghc7.6.1-common ghc7.6.1-digest ghc7.6.1-extensible-exceptions ghc7.6.1-hexpat ghc7.6.1-hs-bibutils ghc7.6.1-http ghc7.6.1-json ghc7.6.1-list ghc7.6.1-mtl ghc7.6.1-network ghc7.6.1-pandoc-types ghc7.6.1-parsec ghc7.6.1-regex-base ghc7.6.1-regex-pcre-builtin ghc7.6.1-syb ghc7.6.1-text ghc7.6.1-transformers ghc7.6.1-utf8-string ghc7.6.1-xml ghc7.6.1-zlib libgmp-devel pkg-config
-BuildRequires: ghc7.6.1-alex ghc7.6.1-base64-bytestring ghc7.6.1-c2hs ghc7.6.1-citeproc-hs ghc7.6.1-cpphs ghc7.6.1-happy ghc7.6.1-highlighting-kate ghc7.6.1-hscolour ghc7.6.1-random ghc7.6.1-tagsoup ghc7.6.1-temporary ghc7.6.1-texmath ghc7.6.1-zip-archive zlib-devel ghc7.6.1-data-default
+BuildRequires: %ghc_namever-base64-bytestring
+BuildRequires: %ghc_namever-random
+BuildRequires: %ghc_namever-tagsoup
+BuildRequires: %ghc_namever-temporary
+BuildRequires: %ghc_namever-texmath
+BuildRequires: %ghc_namever-zip-archive
+BuildRequires: %ghc_namever-data-default
+BuildRequires: zlib-devel
+
+BuildRequires: ghc%ghc_version-glob
+BuildRequires: ghc%ghc_version-http
+BuildRequires: ghc%ghc_version-hsyaml
+BuildRequires: ghc%ghc_version-juicypixels
+BuildRequires: ghc%ghc_version-sha
+BuildRequires: ghc%ghc_version-aeson
+BuildRequires: ghc%ghc_version-aeson-pretty
+BuildRequires: ghc%ghc_version-attoparsec
+BuildRequires: ghc%ghc_version-blaze-html
+BuildRequires: ghc%ghc_version-blaze-markup
+BuildRequires: ghc%ghc_version-case-insensitive
+BuildRequires: ghc%ghc_version-cmark-gfm
+BuildRequires: ghc%ghc_version-doctemplates
+BuildRequires: ghc%ghc_version-exceptions
+BuildRequires: ghc%ghc_version-haddock-library
+BuildRequires: ghc%ghc_version-hslua
+BuildRequires: ghc%ghc_version-hslua-module-text
+BuildRequires: ghc%ghc_version-hslua-module-system
+BuildRequires: ghc%ghc_version-http-client
+BuildRequires: ghc%ghc_version-http-client-tls
+BuildRequires: ghc%ghc_version-http-types
+BuildRequires: ghc%ghc_version-ipynb
+BuildRequires: ghc%ghc_version-network
+BuildRequires: ghc%ghc_version-network-uri
+BuildRequires: ghc%ghc_version-pandoc-types
+BuildRequires: ghc%ghc_version-safe
+BuildRequires: ghc%ghc_version-scientific
+BuildRequires: ghc%ghc_version-skylighting
+BuildRequires: ghc%ghc_version-split
+BuildRequires: ghc%ghc_version-syb
+BuildRequires: ghc%ghc_version-unicode-transforms
+BuildRequires: ghc%ghc_version-unordered-containers
+BuildRequires: ghc%ghc_version-vector
+BuildRequires: ghc%ghc_version-xml
+BuildRequires: ghc%ghc_version-zlib
+
 
 %package -n ghc%ghc_version-pandoc
 Summary: Markup conversion tool for markdown
@@ -46,22 +91,28 @@ Slidy HTML slide shows.
 %setup -q
 
 %build
-%hs_configure2
+%hs_configure2 --disable-split-objs
 %hs_build
 
 %install
 %hs_install
 %hs_gen_filelist
-grep -v %_libdir %name-files.all > %name-files.bin
 grep %_libdir %name-files.all > %name-files.lib
+
+ln -s pandoc %buildroot%_bindir/hsmarkdown
+install -m 0644 -p -D man/pandoc.1 %buildroot%_man1dir/pandoc.1
 
 %files -n ghc%ghc_version-pandoc -f %name-files.lib
 
-%files -f %name-files.bin
+%files
+%_bindir/*
 %_man1dir/*
-%_man5dir/*
+%_datadir/*
 
 %changelog
+* Wed Feb 07 2020 Rodion Philippov <toga@altlinux.org> 2.7.3-alt1
+- Update to 2.7.3 on ghc-8.6.4
+
 * Mon Mar 13 2017 Denis Smirnov <mithraen@altlinux.ru> 1.11.1-alt2
 - move pandoc haskell lib to separate subpackage (ALT 31654)
 

@@ -1,24 +1,7 @@
-{-
-Copyright (C) 2011 John MacFarlane <jgm@berkeley.edu>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
--}
-
+{-# LANGUAGE NoImplicitPrelude #-}
 {- |
    Module      : Text.Pandoc.Readers.Native
-   Copyright   : Copyright (C) 2011 John MacFarlane
+   Copyright   : Copyright (C) 2011-2019 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
@@ -30,14 +13,15 @@ Conversion of a string representation of a pandoc type (@Pandoc@,
 -}
 module Text.Pandoc.Readers.Native ( readNative ) where
 
+import Prelude
 import Text.Pandoc.Definition
+import Text.Pandoc.Options (ReaderOptions)
 import Text.Pandoc.Shared (safeRead)
 
-nullMeta :: Meta
-nullMeta = Meta{ docTitle = []
-               , docAuthors = []
-               , docDate = []
-               }
+import Control.Monad.Except (throwError)
+import Data.Text (Text, unpack)
+import Text.Pandoc.Class
+import Text.Pandoc.Error
 
 -- | Read native formatted text and return a Pandoc document.
 -- The input may be a full pandoc document, a block list, a block,
@@ -47,36 +31,25 @@ nullMeta = Meta{ docTitle = []
 --
 -- will be treated as if it were
 --
--- > Pandoc (Meta [] [] []) [Plain [Str "hi"]]
+-- > Pandoc nullMeta [Plain [Str "hi"]]
 --
-readNative :: String      -- ^ String to parse (assuming @'\n'@ line endings)
-           -> Pandoc
-readNative s =
-  case safeRead s of
-       Just d    -> d
-       Nothing   -> Pandoc nullMeta $ readBlocks s
+readNative :: PandocMonad m
+           => ReaderOptions
+           -> Text       -- ^ String to parse (assuming @'\n'@ line endings)
+           -> m Pandoc
+readNative _ s =
+  case maybe (Pandoc nullMeta <$> readBlocks s) Right (safeRead (unpack s)) of
+    Right doc -> return doc
+    Left _    -> throwError $ PandocParseError "couldn't read native"
 
-readBlocks :: String -> [Block]
-readBlocks s =
-  case safeRead s of
-       Just d    -> d
-       Nothing   -> [readBlock s]
+readBlocks :: Text -> Either PandocError [Block]
+readBlocks s = maybe ((:[]) <$> readBlock s) Right (safeRead (unpack s))
 
-readBlock :: String -> Block
-readBlock s =
-  case safeRead s of
-       Just d    -> d
-       Nothing   -> Plain $ readInlines s
+readBlock :: Text -> Either PandocError Block
+readBlock s = maybe (Plain <$> readInlines s) Right (safeRead (unpack s))
 
-readInlines :: String -> [Inline]
-readInlines s =
-  case safeRead s of
-       Just d     -> d
-       Nothing    -> [readInline s]
+readInlines :: Text -> Either PandocError [Inline]
+readInlines s = maybe ((:[]) <$> readInline s) Right (safeRead (unpack s))
 
-readInline :: String -> Inline
-readInline s =
-  case safeRead s of
-       Just d     -> d
-       Nothing    -> error "Cannot parse document"
-
+readInline :: Text -> Either PandocError Inline
+readInline s = maybe (Left . PandocParseError $ "Could not read: " ++ unpack s) Right (safeRead (unpack s))

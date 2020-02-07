@@ -1,46 +1,93 @@
+{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE TupleSections #-}
+{-
+Copyright (C) 2012-2019 John MacFarlane <jgm@berkeley.edu>
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+-}
+import Prelude
 import Text.Pandoc
-import Text.Pandoc.Shared (normalize)
+import Text.Pandoc.Error (PandocError(..))
+import Control.Monad.Except (throwError)
+import qualified Text.Pandoc.UTF8 as UTF8
+import qualified Data.ByteString as B
 import Criterion.Main
-import Criterion.Config
-import Text.JSON.Generic
+import Criterion.Types (Config(..))
+import Data.List (intersect)
+import Data.Maybe (mapMaybe)
 import System.Environment (getArgs)
-import Data.Monoid
 
 readerBench :: Pandoc
-            -> (String, ReaderOptions -> String -> IO Pandoc)
-            -> Benchmark
-readerBench doc (name, reader) =
-  let writer = case lookup name writers of
-                     Just (PureStringWriter w) -> w
-                     _ -> error $ "Could not find writer for " ++ name
-      inp = writer def{ writerWrapText = True } doc
-      -- we compute the length to force full evaluation
-      getLength (Pandoc (Meta a b c) d) =
-            length a + length b + length c + length d
-  in  bench (name ++ " reader") $ whnfIO $ getLength `fmap`
-      (reader def{ readerSmart = True }) inp
+            -> String
+            -> Maybe Benchmark
+readerBench doc name =
+  case res of
+       Right (readerFun, inp) ->
+          Just $ bench (name ++ " reader")
+               $ nf (\i -> either (error . show) id $ runPure (readerFun i))
+                 inp
+       Left _ -> Nothing
+  where res = runPure $
+          case (getReader name, getWriter name) of
+            (Right (TextReader r, rexts),
+             Right (TextWriter w, wexts)) -> do
+               inp <- w def{ writerWrapText = WrapAuto
+                           , writerExtensions = wexts } doc
+               return $ (r def{ readerExtensions = rexts }, inp)
+            _ -> throwError $ PandocSomeError
+                 $ "could not get text reader and writer for " ++ name
 
 writerBench :: Pandoc
-            -> (String, WriterOptions -> Pandoc -> String)
-            -> Benchmark
-writerBench doc (name, writer) = bench (name ++ " writer") $ nf
-    (writer def{ writerWrapText = True }) doc
-
-normalizeBench :: Pandoc -> [Benchmark]
-normalizeBench doc = [ bench "normalize - with" $ nf (encodeJSON . normalize) doc
-                     , bench "normalize - without" $ nf encodeJSON doc
-                     ]
+            -> String
+            -> Maybe Benchmark
+writerBench doc name =
+  case res of
+       Right writerFun ->
+          Just $ bench (name ++ " writer")
+               $ nf (\d -> either (error . show) id $
+                            runPure (writerFun d)) doc
+       Left _ -> Nothing
+  where res = runPure $ do
+          case (getWriter name) of
+            Right (TextWriter w, wexts) ->
+              return $ w def{ writerExtensions = wexts }
+            _ -> throwError $ PandocSomeError
+                 $ "could not get text reader and writer for " ++ name
 
 main :: IO ()
 main = do
-  args <- getArgs
-  (conf,_) <- parseArgs defaultConfig{ cfgSamples = Last $ Just 20 }  defaultOptions args
-  inp  <- readFile "README"
-  inp2 <- readFile "tests/testsuite.txt"
-  let opts = def{ readerSmart = True }
-  let doc = readMarkdown opts $ inp ++ unlines (drop 3 $ lines inp2)
-  let readerBs = map (readerBench doc) readers
-  let writers' = [(n,w) | (n, PureStringWriter w) <- writers]
-  defaultMainWith conf (return ()) $
-    map (writerBench doc) writers' ++ readerBs ++ normalizeBench doc
-
+  args <- filter (\x -> take 1 x /= "-") <$> getArgs
+  print args
+  let matchReader (n, TextReader _) =
+         null args || ("reader" `elem` args && n `elem` args)
+      matchReader _                 = False
+  let matchWriter (n, TextWriter _) =
+         null args || ("writer" `elem` args && n `elem` args)
+      matchWriter _                 = False
+  let matchedReaders = map fst $ (filter matchReader readers
+                                    :: [(String, Reader PandocPure)])
+  let matchedWriters = map fst $ (filter matchWriter writers
+                                    :: [(String, Writer PandocPure)])
+  inp <- UTF8.toText <$> B.readFile "test/testsuite.txt"
+  let opts = def
+  let doc = either (error . show) id $ runPure $ readMarkdown opts inp
+  let readerBs = mapMaybe (readerBench doc)
+                 $ filter (/="haddock")
+                 (matchedReaders `intersect` matchedWriters)
+                 -- we need the corresponding writer to generate
+                 -- input for the reader
+  let writerBs = mapMaybe (writerBench doc) matchedWriters
+  defaultMainWith defaultConfig{ timeLimit = 6.0 }
+    (writerBs ++ readerBs)

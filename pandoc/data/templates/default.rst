@@ -1,5 +1,5 @@
-$if(title)$
-$title$
+$if(titleblock)$
+$titleblock$
 
 $endif$
 $for(author)$
@@ -15,9 +15,9 @@ $if(date)$
 
 $endif$
 $endif$
-$if(math)$
-.. role:: math(raw)
-   :format: html latex
+$if(rawtex)$
+.. role:: raw-latex(raw)
+   :format: latex
 ..
 
 $endif$
@@ -29,6 +29,10 @@ $if(toc)$
 .. contents::
    :depth: $toc-depth$
 ..
+
+$endif$
+$if(number-sections)$
+.. section-numbering::
 
 $endif$
 $for(header-includes)$

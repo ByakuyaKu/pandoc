@@ -1,24 +1,7 @@
-{-
-Copyright (C) 2011 John MacFarlane <jgm@berkeley.edu>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
--}
-
+{-# LANGUAGE NoImplicitPrelude #-}
 {- |
    Module      : Text.Pandoc.MIME
-   Copyright   : Copyright (C) 2011 John MacFarlane
+   Copyright   : Copyright (C) 2011-2019 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
@@ -27,18 +10,58 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 Mime type lookup for ODT writer.
 -}
-module Text.Pandoc.MIME ( getMimeType )
-where
-import System.FilePath
-import Data.Char ( toLower )
+module Text.Pandoc.MIME ( MimeType, getMimeType, getMimeTypeDef,
+                          extensionFromMimeType, mediaCategory ) where
+import Prelude
+import Data.Char (toLower)
+import Data.List (isPrefixOf, isSuffixOf)
+import Data.List.Split (splitOn)
 import qualified Data.Map as M
+import Data.Maybe (fromMaybe, listToMaybe)
+import System.FilePath
+
+type MimeType = String
 
 -- | Determine mime type appropriate for file path.
-getMimeType :: FilePath -> Maybe String
-getMimeType "layout-cache" = Just "application/binary"  -- in ODT
-getMimeType f = M.lookup (map toLower $ drop 1 $ takeExtension f) mimeTypes
-  where mimeTypes = M.fromList -- List borrowed from happstack-server.
-           [("gz","application/x-gzip")
+getMimeType :: FilePath -> Maybe MimeType
+getMimeType fp
+  -- ODT
+  | fp == "layout-cache" =
+        Just "application/binary"
+  | "Formula-" `isPrefixOf` fp && "/" `isSuffixOf` fp =
+        Just "application/vnd.oasis.opendocument.formula"
+  -- generic
+  | otherwise = M.lookup (map toLower $ drop 1 $ takeExtension fp) mimeTypes
+
+-- | Determime mime type appropriate for file path, defaulting to
+-- “application/octet-stream” if nothing else fits.
+getMimeTypeDef :: FilePath -> MimeType
+getMimeTypeDef = fromMaybe "application/octet-stream" . getMimeType
+
+extensionFromMimeType :: MimeType -> Maybe String
+extensionFromMimeType mimetype =
+  M.lookup (takeWhile (/=';') mimetype) reverseMimeTypes
+  -- note:  we just look up the basic mime type, dropping the content-encoding etc.
+
+-- | Determine general media category for file path, e.g.
+--
+-- prop> mediaCategory "foo.jpg" = Just "image"
+mediaCategory :: FilePath -> Maybe String
+mediaCategory fp = getMimeType fp >>= listToMaybe . splitOn "/"
+
+reverseMimeTypes :: M.Map MimeType String
+reverseMimeTypes = M.fromList $ map (\(k,v) -> (v,k)) mimeTypesList
+
+mimeTypes :: M.Map String MimeType
+mimeTypes = M.fromList mimeTypesList
+
+-- | Collection of common mime types.
+-- Except for first entry, list borrowed from
+-- <https://github.com/Happstack/happstack-server/blob/master/src/Happstack/Server/FileServe/BuildingBlocks.hs happstack-server>
+mimeTypesList :: [(String, MimeType)]
+mimeTypesList =
+           [("cpt","image/x-corelphotopaint")
+           ,("gz","application/x-gzip")
            ,("cabal","application/x-cabal")
            ,("%","application/x-trash")
            ,("323","text/h323")
@@ -139,10 +162,12 @@ getMimeType f = M.lookup (map toLower $ drop 1 $ takeExtension f) mimeTypes
            ,("dxr","application/x-director")
            ,("emb","chemical/x-embl-dl-nucleotide")
            ,("embl","chemical/x-embl-dl-nucleotide")
+           ,("emf","image/x-emf")
+           ,("emz","application/x-msmetafile")
            ,("eml","message/rfc822")
            ,("ent","chemical/x-ncbi-asn1-ascii")
            ,("eot","application/vnd.ms-fontobject")
-           ,("eps","application/postscript")
+           ,("eps","application/eps")
            ,("etx","text/x-setext")
            ,("exe","application/x-msdos-program")
            ,("ez","application/andrew-inset")
@@ -212,8 +237,9 @@ getMimeType f = M.lookup (map toLower $ drop 1 $ takeExtension f) mimeTypes
            ,("jnlp","application/x-java-jnlp-file")
            ,("jpe","image/jpeg")
            ,("jpeg","image/jpeg")
+           ,("jfif","image/jpeg")
            ,("jpg","image/jpeg")
-           ,("js","application/x-javascript")
+           ,("js","application/javascript")
            ,("kar","audio/midi")
            ,("key","application/pgp-keys")
            ,("kil","application/x-killustrator")
@@ -236,6 +262,7 @@ getMimeType f = M.lookup (map toLower $ drop 1 $ takeExtension f) mimeTypes
            ,("lzx","application/x-lzx")
            ,("m3u","audio/mpegurl")
            ,("m4a","audio/mpeg")
+           ,("m4v","video/x-m4v")
            ,("maker","application/x-maker")
            ,("man","application/x-troff-man")
            ,("mcif","chemical/x-mmcif")
@@ -293,11 +320,12 @@ getMimeType f = M.lookup (map toLower $ drop 1 $ takeExtension f) mimeTypes
            ,("ogv","video/ogg")
            ,("ogx","application/ogg")
            ,("old","application/x-trash")
+           ,("opus","audio/ogg")
            ,("otg","application/vnd.oasis.opendocument.graphics-template")
            ,("oth","application/vnd.oasis.opendocument.text-web")
            ,("otp","application/vnd.oasis.opendocument.presentation-template")
            ,("ots","application/vnd.oasis.opendocument.spreadsheet-template")
-           ,("otf","application/x-font-opentype")
+           ,("otf","application/vnd.ms-opentype")
            ,("ott","application/vnd.oasis.opendocument.text-template")
            ,("oza","application/x-oz-application")
            ,("p","text/x-pascal")
@@ -402,7 +430,9 @@ getMimeType f = M.lookup (map toLower $ drop 1 $ takeExtension f) mimeTypes
            ,("sv4cpio","application/x-sv4cpio")
            ,("sv4crc","application/x-sv4crc")
            ,("svg","image/svg+xml")
-           ,("svgz","image/svg+xml")
+           -- removed for now, since it causes problems with
+           -- extensionFromMimeType: see #2183.
+           -- ,("svgz","image/svg+xml")
            ,("sw","chemical/x-swissprot")
            ,("swf","application/x-shockwave-flash")
            ,("swfl","application/x-shockwave-flash")
@@ -446,16 +476,19 @@ getMimeType f = M.lookup (map toLower $ drop 1 $ takeExtension f) mimeTypes
            ,("vrml","model/vrml")
            ,("vs","text/plain")
            ,("vsd","application/vnd.visio")
+           ,("vtt","text/vtt")
            ,("wad","application/x-doom")
            ,("wav","audio/x-wav")
            ,("wax","audio/x-ms-wax")
            ,("wbmp","image/vnd.wap.wbmp")
            ,("wbxml","application/vnd.wap.wbxml")
            ,("webm","video/webm")
+           ,("webp","image/webp")
            ,("wk","application/x-123")
            ,("wm","video/x-ms-wm")
            ,("wma","audio/x-ms-wma")
            ,("wmd","application/x-ms-wmd")
+           ,("wmf","image/x-wmf")
            ,("wml","text/vnd.wap.wml")
            ,("wmlc","application/vnd.wap.wmlc")
            ,("wmls","text/vnd.wap.wmlscript")
@@ -463,7 +496,8 @@ getMimeType f = M.lookup (map toLower $ drop 1 $ takeExtension f) mimeTypes
            ,("wmv","video/x-ms-wmv")
            ,("wmx","video/x-ms-wmx")
            ,("wmz","application/x-ms-wmz")
-           ,("woff","application/x-font-woff")
+           ,("woff","application/font-woff")
+           ,("woff2","font/woff2")
            ,("wp5","application/wordperfect5.1")
            ,("wpd","application/wordperfect")
            ,("wrl","model/vrml")
@@ -488,4 +522,3 @@ getMimeType f = M.lookup (map toLower $ drop 1 $ takeExtension f) mimeTypes
            ,("zip","application/zip")
            ,("zmt","chemical/x-mopac-input")
            ]
-

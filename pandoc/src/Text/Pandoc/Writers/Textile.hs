@@ -1,24 +1,7 @@
-{-
-Copyright (C) 2010 John MacFarlane <jgm@berkeley.edu>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
--}
-
+{-# LANGUAGE NoImplicitPrelude #-}
 {- |
    Module      : Text.Pandoc.Writers.Textile
-   Copyright   : Copyright (C) 2010 John MacFarlane
+   Copyright   : Copyright (C) 2010-2019 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
@@ -30,41 +13,57 @@ Conversion of 'Pandoc' documents to Textile markup.
 Textile:  <http://thresholdstate.com/articles/4312/the-textile-reference-manual>
 -}
 module Text.Pandoc.Writers.Textile ( writeTextile ) where
+import Prelude
+import Control.Monad.State.Strict
+import Data.Char (isSpace)
+import Data.List (intercalate)
+import Data.Text (Text, pack)
+import Text.Pandoc.Class (PandocMonad, report)
 import Text.Pandoc.Definition
+import Text.Pandoc.ImageSize
+import Text.Pandoc.Logging
 import Text.Pandoc.Options
+import Text.Pandoc.Pretty (render)
 import Text.Pandoc.Shared
-import Text.Pandoc.Templates (renderTemplate)
-import Text.Pandoc.XML ( escapeStringForXML )
-import Data.List ( intercalate )
-import Control.Monad.State
-import Data.Char ( isSpace )
+import Text.Pandoc.Templates (renderTemplate')
+import Text.Pandoc.Writers.Shared
+import Text.Pandoc.XML (escapeStringForXML)
 
 data WriterState = WriterState {
     stNotes     :: [String]        -- Footnotes
   , stListLevel :: [Char]          -- String at beginning of list items, e.g. "**"
+  , stStartNum  :: Maybe Int       -- Start number if first list item
   , stUseTags   :: Bool            -- True if we should use HTML tags because we're in a complex list
   }
 
+type TW = StateT WriterState
+
 -- | Convert Pandoc to Textile.
-writeTextile :: WriterOptions -> Pandoc -> String
+writeTextile :: PandocMonad m => WriterOptions -> Pandoc -> m Text
 writeTextile opts document =
-  evalState (pandocToTextile opts document)
-            (WriterState { stNotes = [], stListLevel = [], stUseTags = False })
+  evalStateT (pandocToTextile opts document)
+            WriterState { stNotes = [],
+                          stListLevel = [],
+                          stStartNum = Nothing,
+                          stUseTags = False }
 
 -- | Return Textile representation of document.
-pandocToTextile :: WriterOptions -> Pandoc -> State WriterState String
-pandocToTextile opts (Pandoc _ blocks) = do
+pandocToTextile :: PandocMonad m
+                => WriterOptions -> Pandoc -> TW m Text
+pandocToTextile opts (Pandoc meta blocks) = do
+  metadata <- metaToJSON opts (blockListToTextile opts)
+                 (inlineListToTextile opts) meta
   body <- blockListToTextile opts blocks
-  notes <- liftM (unlines . reverse . stNotes) get
-  let main = body ++ if null notes then "" else ("\n\n" ++ notes)
-  let context = writerVariables opts ++ [ ("body", main) ]
-  if writerStandalone opts
-     then return $ renderTemplate context $ writerTemplate opts
-     else return main
+  notes <- gets $ unlines . reverse . stNotes
+  let main = pack $ body ++ if null notes then "" else "\n\n" ++ notes
+  let context = defField "body" main metadata
+  case writerTemplate opts of
+         Nothing  -> return main
+         Just tpl -> renderTemplate' tpl context
 
-withUseTags :: State WriterState a -> State WriterState a
+withUseTags :: PandocMonad m => TW m a -> TW m a
 withUseTags action = do
-  oldUseTags <- liftM stUseTags get
+  oldUseTags <- gets stUseTags
   modify $ \s -> s { stUseTags = True }
   result <- action
   modify $ \s -> s { stUseTags = oldUseTags }
@@ -80,6 +79,8 @@ escapeCharForTextile x = case x of
                          '*'      -> "&#42;"
                          '_'      -> "&#95;"
                          '@'      -> "&#64;"
+                         '+'      -> "&#43;"
+                         '-'      -> "&#45;"
                          '|'      -> "&#124;"
                          '\x2014' -> " -- "
                          '\x2013' -> " - "
@@ -92,39 +93,50 @@ escapeStringForTextile :: String -> String
 escapeStringForTextile = concatMap escapeCharForTextile
 
 -- | Convert Pandoc block element to Textile.
-blockToTextile :: WriterOptions -- ^ Options
-                -> Block         -- ^ Block element
-                -> State WriterState String
+blockToTextile :: PandocMonad m
+               => WriterOptions -- ^ Options
+               -> Block         -- ^ Block element
+               -> TW m String
 
 blockToTextile _ Null = return ""
+
+blockToTextile opts (Div attr bs) = do
+  let startTag = render Nothing $ tagWithAttrs "div" attr
+  let endTag = "</div>"
+  contents <- blockListToTextile opts bs
+  return $ startTag ++ "\n\n" ++ contents ++ "\n\n" ++ endTag ++ "\n"
 
 blockToTextile opts (Plain inlines) =
   inlineListToTextile opts inlines
 
 -- title beginning with fig: indicates that the image is a figure
-blockToTextile opts (Para [Image txt (src,'f':'i':'g':':':tit)]) = do
+blockToTextile opts (Para [Image attr txt (src,'f':'i':'g':':':tit)]) = do
   capt <- blockToTextile opts (Para txt)
-  im <- inlineToTextile opts (Image txt (src,tit))
+  im <- inlineToTextile opts (Image attr txt (src,tit))
   return $ im ++ "\n" ++ capt
 
 blockToTextile opts (Para inlines) = do
-  useTags <- liftM stUseTags get
-  listLevel <- liftM stListLevel get
+  useTags <- gets stUseTags
+  listLevel <- gets stListLevel
   contents <- inlineListToTextile opts inlines
   return $ if useTags
               then "<p>" ++ contents ++ "</p>"
               else contents ++ if null listLevel then "\n" else ""
 
-blockToTextile _ (RawBlock f str) =
-  if f == "html" || f == "textile"
-     then return str
-     else return ""
+blockToTextile opts (LineBlock lns) =
+  blockToTextile opts $ linesToPara lns
+
+blockToTextile _ b@(RawBlock f str)
+  | f == Format "html" || f == Format "textile" = return str
+  | otherwise                                   = do
+      report $ BlockNotRendered b
+      return ""
 
 blockToTextile _ HorizontalRule = return "<hr />\n"
 
 blockToTextile opts (Header level (ident,classes,keyvals) inlines) = do
   contents <- inlineListToTextile opts inlines
-  let identAttr = if null ident then "" else ('#':ident)
+  let identAttr = if null ident then "" else '#':ident
   let attribs = if null identAttr && null classes
                    then ""
                    else "(" ++ unwords classes ++ identAttr ++ ")"
@@ -155,14 +167,22 @@ blockToTextile opts (BlockQuote blocks) = do
   return $ "<blockquote>\n\n" ++ contents ++ "\n</blockquote>\n"
 
 blockToTextile opts (Table [] aligns widths headers rows') |
-         all (==0) widths && all (`elem` [AlignLeft,AlignDefault]) aligns = do
+         all (==0) widths = do
   hs <- mapM (liftM (("_. " ++) . stripTrailingNewlines) . blockListToTextile opts) headers
   let cellsToRow cells = "|" ++ intercalate "|" cells ++ "|"
-  let header = if all null headers then "" else cellsToRow hs
-  let rowToCells = mapM (liftM stripTrailingNewlines . blockListToTextile opts)
+  let header = if all null headers then "" else cellsToRow hs ++ "\n"
+  let blocksToCell (align, bs) = do
+        contents <- stripTrailingNewlines <$> blockListToTextile opts bs
+        let alignMarker = case align of
+                               AlignLeft    -> "<. "
+                               AlignRight   -> ">. "
+                               AlignCenter  -> "=. "
+                               AlignDefault -> ""
+        return $ alignMarker ++ contents
+  let rowToCells = mapM blocksToCell . zip aligns
   bs <- mapM rowToCells rows'
   let body = unlines $ map cellsToRow bs
-  return $ header ++ "\n" ++ body ++ "\n"
+  return $ header ++ body
 
 blockToTextile opts (Table capt aligns widths headers rows') = do
   let alignStrings = map alignmentToString aligns
@@ -186,7 +206,7 @@ blockToTextile opts (Table capt aligns widths headers rows') = do
             "<tbody>\n" ++ unlines body' ++ "</tbody>\n</table>\n"
 
 blockToTextile opts x@(BulletList items) = do
-  oldUseTags <- liftM stUseTags get
+  oldUseTags <- gets stUseTags
   let useTags = oldUseTags || not (isSimpleList x)
   if useTags
      then do
@@ -194,13 +214,13 @@ blockToTextile opts x@(BulletList items) = do
         return $ "<ul>\n" ++ vcat contents ++ "\n</ul>\n"
      else do
         modify $ \s -> s { stListLevel = stListLevel s ++ "*" }
-        level <- get >>= return . length . stListLevel
+        level <- gets $ length . stListLevel
         contents <- mapM (listItemToTextile opts) items
         modify $ \s -> s { stListLevel = init (stListLevel s) }
         return $ vcat contents ++ (if level > 1 then "" else "\n")
 
-blockToTextile opts x@(OrderedList attribs items) = do
-  oldUseTags <- liftM stUseTags get
+blockToTextile opts x@(OrderedList attribs@(start, _, _) items) = do
+  oldUseTags <- gets stUseTags
   let useTags = oldUseTags || not (isSimpleList x)
   if useTags
      then do
@@ -208,10 +228,14 @@ blockToTextile opts x@(OrderedList attribs items) = do
         return $ "<ol" ++ listAttribsToString attribs ++ ">\n" ++ vcat contents ++
                    "\n</ol>\n"
      else do
-        modify $ \s -> s { stListLevel = stListLevel s ++ "#" }
-        level <- get >>= return . length . stListLevel
+        modify $ \s -> s { stListLevel = stListLevel s ++ "#"
+                         , stStartNum = if start > 1
+                                           then Just start
+                                           else Nothing }
+        level <- gets $ length . stListLevel
         contents <- mapM (listItemToTextile opts) items
-        modify $ \s -> s { stListLevel = init (stListLevel s) }
+        modify $ \s -> s { stListLevel = init (stListLevel s),
+                           stStartNum = Nothing }
         return $ vcat contents ++ (if level > 1 then "" else "\n")
 
 blockToTextile opts (DefinitionList items) = do
@@ -232,33 +256,40 @@ listAttribsToString (startnum, numstyle, _) =
           else "")
 
 -- | Convert bullet or ordered list item (list of blocks) to Textile.
-listItemToTextile :: WriterOptions -> [Block] -> State WriterState String
+listItemToTextile :: PandocMonad m
+                  => WriterOptions -> [Block] -> TW m String
 listItemToTextile opts items = do
   contents <- blockListToTextile opts items
-  useTags <- get >>= return . stUseTags
+  useTags <- gets stUseTags
   if useTags
      then return $ "<li>" ++ contents ++ "</li>"
      else do
-       marker <- get >>= return . stListLevel
-       return $ marker ++ " " ++ contents
+       marker <- gets stListLevel
+       mbstart <- gets stStartNum
+       case mbstart of
+            Just n -> do
+              modify $ \s -> s{ stStartNum = Nothing }
+              return $ marker ++ show n ++ " " ++ contents
+            Nothing -> return $ marker ++ " " ++ contents
 
 -- | Convert definition list item (label, list of blocks) to Textile.
-definitionListItemToTextile :: WriterOptions
+definitionListItemToTextile :: PandocMonad m
+                            => WriterOptions
                              -> ([Inline],[[Block]])
-                             -> State WriterState String
+                             -> TW m String
 definitionListItemToTextile opts (label, items) = do
   labelText <- inlineListToTextile opts label
   contents <- mapM (blockListToTextile opts) items
   return $ "<dt>" ++ labelText ++ "</dt>\n" ++
-          (intercalate "\n" $ map (\d -> "<dd>" ++ d ++ "</dd>") contents)
+          intercalate "\n" (map (\d -> "<dd>" ++ d ++ "</dd>") contents)
 
 -- | True if the list can be handled by simple wiki markup, False if HTML tags will be needed.
 isSimpleList :: Block -> Bool
 isSimpleList x =
   case x of
        BulletList items                 -> all isSimpleListItem items
-       OrderedList (num, sty, _) items  -> all isSimpleListItem items &&
-                                            num == 1 && sty `elem` [DefaultStyle, Decimal]
+       OrderedList (_, sty, _) items    -> all isSimpleListItem items &&
+                                            sty `elem` [DefaultStyle, Decimal]
        _                                -> False
 
 -- | True if list item can be handled with the simple wiki syntax.  False if
@@ -267,16 +298,16 @@ isSimpleListItem :: [Block] -> Bool
 isSimpleListItem []  = True
 isSimpleListItem [x] =
   case x of
-       Plain _           -> True
-       Para  _           -> True
-       BulletList _      -> isSimpleList x
-       OrderedList _ _   -> isSimpleList x
-       _                 -> False
+       Plain _         -> True
+       Para  _         -> True
+       BulletList _    -> isSimpleList x
+       OrderedList _ _ -> isSimpleList x
+       _               -> False
 isSimpleListItem [x, y] | isPlainOrPara x =
   case y of
-       BulletList _      -> isSimpleList y
-       OrderedList _ _   -> isSimpleList y
-       _                 -> False
+       BulletList _    -> isSimpleList y
+       OrderedList _ _ -> isSimpleList y
+       _               -> False
 isSimpleListItem _ = False
 
 isPlainOrPara :: Block -> Bool
@@ -291,18 +322,19 @@ vcat = intercalate "\n"
 -- Auxiliary functions for tables. (TODO: these are common to HTML, MediaWiki,
 -- and Textile writers, and should be abstracted out.)
 
-tableRowToTextile :: WriterOptions
-                    -> [String]
-                    -> Int
-                    -> [[Block]]
-                    -> State WriterState String
+tableRowToTextile :: PandocMonad m
+                  => WriterOptions
+                  -> [String]
+                  -> Int
+                  -> [[Block]]
+                  -> TW m String
 tableRowToTextile opts alignStrings rownum cols' = do
   let celltype = if rownum == 0 then "th" else "td"
   let rowclass = case rownum of
-                      0                  -> "header"
+                      0 -> "header"
                       x | x `rem` 2 == 1 -> "odd"
-                      _                  -> "even"
-  cols'' <- sequence $ zipWith
+                      _ -> "even"
+  cols'' <- zipWithM
             (\alignment item -> tableItemToTextile opts celltype alignment item)
             alignStrings cols'
   return $ "<tr class=\"" ++ rowclass ++ "\">\n" ++ unlines cols'' ++ "</tr>"
@@ -314,11 +346,12 @@ alignmentToString alignment = case alignment of
                                  AlignCenter  -> "center"
                                  AlignDefault -> "left"
 
-tableItemToTextile :: WriterOptions
-                     -> String
-                     -> String
-                     -> [Block]
-                     -> State WriterState String
+tableItemToTextile :: PandocMonad m
+                   => WriterOptions
+                   -> String
+                   -> String
+                   -> [Block]
+                   -> TW m String
 tableItemToTextile opts celltype align' item = do
   let mkcell x = "<" ++ celltype ++ " align=\"" ++ align' ++ "\">" ++
                     x ++ "</" ++ celltype ++ ">"
@@ -326,19 +359,24 @@ tableItemToTextile opts celltype align' item = do
   return $ mkcell contents
 
 -- | Convert list of Pandoc block elements to Textile.
-blockListToTextile :: WriterOptions -- ^ Options
-                    -> [Block]       -- ^ List of block elements
-                    -> State WriterState String
+blockListToTextile :: PandocMonad m
+                   => WriterOptions -- ^ Options
+                   -> [Block]       -- ^ List of block elements
+                   -> TW m String
 blockListToTextile opts blocks =
-  mapM (blockToTextile opts) blocks >>= return . vcat
+  vcat <$> mapM (blockToTextile opts) blocks
 
 -- | Convert list of Pandoc inline elements to Textile.
-inlineListToTextile :: WriterOptions -> [Inline] -> State WriterState String
+inlineListToTextile :: PandocMonad m
+                    => WriterOptions -> [Inline] -> TW m String
 inlineListToTextile opts lst =
-  mapM (inlineToTextile opts) lst >>= return . concat
+  concat <$> mapM (inlineToTextile opts) lst
 
 -- | Convert Pandoc inline element to Textile.
-inlineToTextile :: WriterOptions -> Inline -> State WriterState String
+inlineToTextile :: PandocMonad m => WriterOptions -> Inline -> TW m String
+
+inlineToTextile opts (Span _ lst) =
+  inlineListToTextile opts lst
 
 inlineToTextile opts (Emph lst) = do
   contents <- inlineListToTextile opts lst
@@ -390,37 +428,58 @@ inlineToTextile _ (Code _ str) =
 inlineToTextile _ (Str str) = return $ escapeStringForTextile str
 
 inlineToTextile _ (Math _ str) =
-  return $ "<span class=\"math\">" ++ escapeStringForXML str ++ "</math>"
+  return $ "<span class=\"math\">" ++ escapeStringForXML str ++ "</span>"
 
-inlineToTextile _ (RawInline f str) =
-  if f == "html" || f == "textile"
-     then return str
-     else return ""
+inlineToTextile opts il@(RawInline f str)
+  | f == Format "html" || f == Format "textile" = return str
+  | (f == Format "latex" || f == Format "tex") &&
+     isEnabled Ext_raw_tex opts                 = return str
+  | otherwise                                   = do
+      report $ InlineNotRendered il
+      return ""
 
-inlineToTextile _ (LineBreak) = return "\n"
+inlineToTextile _ LineBreak = return "\n"
+
+inlineToTextile _ SoftBreak = return " "
 
 inlineToTextile _ Space = return " "
 
-inlineToTextile opts (Link txt (src, _)) = do
+inlineToTextile opts (Link (_, cls, _) txt (src, _)) = do
   label <- case txt of
                 [Code _ s]
                  | s == src -> return "$"
                 [Str s]
                  | s == src -> return "$"
                 _           -> inlineListToTextile opts txt
-  return $ "\"" ++ label ++ "\":" ++ src
+  let classes = if null cls || cls == ["uri"] && label == "$"
+                   then ""
+                   else "(" ++ unwords cls ++ ")"
+  return $ "\"" ++ classes ++ label ++ "\":" ++ src
 
-inlineToTextile opts (Image alt (source, tit)) = do
+inlineToTextile opts (Image attr@(_, cls, _) alt (source, tit)) = do
   alt' <- inlineListToTextile opts alt
   let txt = if null tit
                then if null alt'
                        then ""
                        else "(" ++ alt' ++ ")"
                else "(" ++ tit ++ ")"
-  return $ "!" ++ source ++ txt ++ "!"
+      classes = if null cls
+                   then ""
+                   else "(" ++ unwords cls ++ ")"
+      showDim dir = let toCss str = Just $ show dir ++ ":" ++ str ++ ";"
+                    in case dimension dir attr of
+                         Just (Percent a) -> toCss $ show (Percent a)
+                         Just dim         -> toCss $ showInPixel opts dim ++ "px"
+                         Nothing          -> Nothing
+      styles = case (showDim Width, showDim Height) of
+                 (Just w, Just h)   -> "{" ++ w ++ h ++ "}"
+                 (Just w, Nothing)  -> "{" ++ w ++ "height:auto;}"
+                 (Nothing, Just h)  -> "{" ++ "width:auto;" ++ h ++ "}"
+                 (Nothing, Nothing) -> ""
+  return $ "!" ++ classes ++ styles ++ source ++ txt ++ "!"
 
 inlineToTextile opts (Note contents) = do
-  curNotes <- liftM stNotes get
+  curNotes <- gets stNotes
   let newnum = length curNotes + 1
   contents' <- blockListToTextile opts contents
   let thisnote = "fn" ++ show newnum ++ ". " ++ contents' ++ "\n"

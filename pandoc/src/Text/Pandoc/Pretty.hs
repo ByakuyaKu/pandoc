@@ -1,25 +1,9 @@
+{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE CPP                        #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-
-Copyright (C) 2010 John MacFarlane <jgm@berkeley.edu>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111(-1)307  USA
--}
-
 {- |
    Module      : Text.Pandoc.Pretty
-   Copyright   : Copyright (C) 2010 John MacFarlane
+   Copyright   : Copyright (C) 2010-2019 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
@@ -35,6 +19,7 @@ module Text.Pandoc.Pretty (
      , render
      , cr
      , blankline
+     , blanklines
      , space
      , text
      , char
@@ -44,7 +29,9 @@ module Text.Pandoc.Pretty (
      , hang
      , beforeNonBlank
      , nowrap
+     , afterBreak
      , offset
+     , minOffset
      , height
      , lblock
      , cblock
@@ -60,6 +47,7 @@ module Text.Pandoc.Pretty (
      , hsep
      , vcat
      , vsep
+     , nestle
      , chomp
      , inside
      , braces
@@ -72,22 +60,24 @@ module Text.Pandoc.Pretty (
      )
 
 where
-import Data.Sequence (Seq, fromList, (<|), singleton, mapWithIndex)
-import Data.Foldable (toList)
-import Data.List (intercalate)
-import Data.Monoid
-import Data.String
-import Control.Monad.State
+import Prelude
+import Control.Monad
+import Control.Monad.State.Strict
 import Data.Char (isSpace)
+import Data.Foldable (toList)
+import Data.List (intersperse, foldl')
+import Data.Sequence (Seq, ViewL (..), fromList, mapWithIndex, singleton, viewl,
+                      (<|))
+import qualified Data.Sequence as Seq
+import Data.String
 
-data Monoid a =>
-     RenderState a = RenderState{
-         output       :: [a]        -- ^ In reverse order
-       , prefix       :: String
-       , usePrefix    :: Bool
-       , lineLength   :: Maybe Int  -- ^ 'Nothing' means no wrapping
-       , column       :: Int
-       , newlines     :: Int        -- ^ Number of preceding newlines
+data RenderState a = RenderState{
+         output     :: [a]        -- ^ In reverse order
+       , prefix     :: String
+       , usePrefix  :: Bool
+       , lineLength :: Maybe Int  -- ^ 'Nothing' means no wrapping
+       , column     :: Int
+       , newlines   :: Int        -- ^ Number of preceding newlines
        }
 
 type DocState a = State (RenderState a) ()
@@ -98,13 +88,14 @@ data D = Text Int String
        | BeforeNonBlank Doc
        | Flush Doc
        | BreakingSpace
+       | AfterBreak String
        | CarriageReturn
        | NewLine
-       | BlankLine
-       deriving (Show)
+       | BlankLines Int  -- number of blank lines
+       deriving (Show, Eq)
 
 newtype Doc = Doc { unDoc :: Seq D }
-              deriving (Monoid, Show)
+              deriving (Semigroup, Monoid, Show, Eq)
 
 instance IsString Doc where
   fromString = text
@@ -113,29 +104,17 @@ isBlank :: D -> Bool
 isBlank BreakingSpace  = True
 isBlank CarriageReturn = True
 isBlank NewLine        = True
-isBlank BlankLine      = True
+isBlank (BlankLines _) = True
 isBlank (Text _ (c:_)) = isSpace c
 isBlank _              = False
 
 -- | True if the document is empty.
 isEmpty :: Doc -> Bool
-isEmpty = null . toList . unDoc
+isEmpty = Seq.null . unDoc
 
 -- | The empty document.
 empty :: Doc
 empty = mempty
-
-#if MIN_VERSION_base(4,5,0)
--- (<>) is defined in Data.Monoid
-#else
-infixr 6 <>
-
--- | An infix synonym for 'mappend'.
--- @a <> b@ is the result of concatenating @a@ with @b@.
-(<>) :: Monoid m => m -> m -> m
-(<>) = mappend
-{-# INLINE (<>) #-}
-#endif
 
 -- | Concatenate a list of 'Doc's.
 cat :: [Doc] -> Doc
@@ -149,11 +128,10 @@ hcat = mconcat
 -- between them.
 infixr 6 <+>
 (<+>) :: Doc -> Doc -> Doc
-(<+>) x y = if isEmpty x
-               then y
-               else if isEmpty y
-                    then x
-                    else x <> space <> y
+(<+>) x y
+  | isEmpty x = y
+  | isEmpty y = x
+  | otherwise = x <> space <> y
 
 -- | Same as 'cat', but putting breakable spaces between the
 -- 'Doc's.
@@ -163,20 +141,18 @@ hsep = foldr (<+>) empty
 infixr 5 $$
 -- | @a $$ b@ puts @a@ above @b@.
 ($$) :: Doc -> Doc -> Doc
-($$) x y = if isEmpty x
-              then y
-              else if isEmpty y
-                   then x
-                   else x <> cr <> y
+($$) x y
+  | isEmpty x = y
+  | isEmpty y = x
+  | otherwise = x <> cr <> y
 
 infixr 5 $+$
--- | @a $$ b@ puts @a@ above @b@, with a blank line between.
+-- | @a $+$ b@ puts @a@ above @b@, with a blank line between.
 ($+$) :: Doc -> Doc -> Doc
-($+$) x y = if isEmpty x
-               then y
-               else if isEmpty y
-                    then x
-                    else x <> blankline <> y
+($+$) x y
+  | isEmpty x = y
+  | isEmpty y = x
+  | otherwise = x <> blankline <> y
 
 -- | List version of '$$'.
 vcat :: [Doc] -> Doc
@@ -186,21 +162,28 @@ vcat = foldr ($$) empty
 vsep :: [Doc] -> Doc
 vsep = foldr ($+$) empty
 
+-- | Removes leading blank lines from a 'Doc'.
+nestle :: Doc -> Doc
+nestle (Doc d) = Doc $ go d
+  where go x = case viewl x of
+               (BlankLines _ :< rest) -> go rest
+               (NewLine :< rest)      -> go rest
+               _                      -> x
+
 -- | Chomps trailing blank space off of a 'Doc'.
 chomp :: Doc -> Doc
 chomp d = Doc (fromList dl')
   where dl = toList (unDoc d)
         dl' = reverse $ go $ reverse dl
-        go [] = []
-        go (BreakingSpace : xs) = go xs
+        go []                    = []
+        go (BreakingSpace : xs)  = go xs
         go (CarriageReturn : xs) = go xs
-        go (NewLine : xs) = go xs
-        go (BlankLine : xs) = go xs
-        go (Prefixed s d' : xs) = Prefixed s (chomp d') : xs
-        go xs = xs
+        go (NewLine : xs)        = go xs
+        go (BlankLines _ : xs)   = go xs
+        go (Prefixed s d' : xs)  = Prefixed s (chomp d') : xs
+        go xs                    = xs
 
-outp :: (IsString a, Monoid a)
-     => Int -> String -> DocState a
+outp :: (IsString a) => Int -> String -> DocState a
 outp off s | off < 0 = do  -- offset < 0 means newline characters
   st' <- get
   let rawpref = prefix st'
@@ -208,15 +191,16 @@ outp off s | off < 0 = do  -- offset < 0 means newline characters
     let pref = reverse $ dropWhile isSpace $ reverse rawpref
     modify $ \st -> st{ output = fromString pref : output st
                       , column = column st + realLength pref }
+  let numnewlines = length $ takeWhile (=='\n') $ reverse s
   modify $ \st -> st { output = fromString s : output st
                      , column = 0
-                     , newlines = newlines st + 1 }
+                     , newlines = newlines st + numnewlines }
 outp off s = do           -- offset >= 0 (0 might be combining char)
   st' <- get
   let pref = prefix st'
-  when (column st' == 0 && usePrefix st' && not (null pref)) $ do
+  when (column st' == 0 && usePrefix st' && not (null pref)) $
     modify $ \st -> st{ output = fromString pref : output st
-                      , column = column st + realLength pref }
+                    , column = column st + realLength pref }
   modify $ \st -> st{ output = fromString s : output st
                     , column = column st + off
                     , newlines = 0 }
@@ -224,8 +208,7 @@ outp off s = do           -- offset >= 0 (0 might be combining char)
 -- | Renders a 'Doc'.  @render (Just n)@ will use
 -- a line length of @n@ to reflow text on breakable spaces.
 -- @render Nothing@ will not reflow text.
-render :: (Monoid a, IsString a)
-       => Maybe Int -> Doc -> a
+render :: (IsString a) => Maybe Int -> Doc -> a
 render linelen doc = fromString . mconcat . reverse . output $
   execState (renderDoc doc) startingState
    where startingState = RenderState{
@@ -238,7 +221,12 @@ render linelen doc = fromString . mconcat . reverse . output $
 
 renderDoc :: (IsString a, Monoid a)
           => Doc -> DocState a
-renderDoc = renderList . toList . unDoc
+renderDoc = renderList . dropWhile (== BreakingSpace) . toList . unDoc
+
+data IsBlock = IsBlock Int [String]
+
+-- This would be nicer with a pattern synonym
+-- pattern VBlock i s <- mkIsBlock -> Just (IsBlock ..)
 
 renderList :: (IsString a, Monoid a)
            => [D] -> DocState a
@@ -269,16 +257,26 @@ renderList (BeforeNonBlank d : xs) =
           | otherwise -> renderDoc d >> renderList xs
     []                -> renderList xs
 
-renderList (BlankLine : xs) = do
+renderList [BlankLines _] = return ()
+
+renderList (BlankLines m : BlankLines n : xs) =
+  renderList (BlankLines (max m n) : xs)
+
+renderList (BlankLines num : BreakingSpace : xs) =
+  renderList (BlankLines num : xs)
+
+renderList (BlankLines num : xs) = do
   st <- get
   case output st of
-     _ | newlines st > 1 || null xs -> return ()
-     _ | column st == 0 -> do
-       outp (-1) "\n"
-     _         -> do
-       outp (-1) "\n"
-       outp (-1) "\n"
+     _ | newlines st > num -> return ()
+       | otherwise -> replicateM_ (1 + num - newlines st) (outp (-1) "\n")
   renderList xs
+
+renderList (CarriageReturn : BlankLines m : xs) =
+  renderList (BlankLines m : xs)
+
+renderList (CarriageReturn : BreakingSpace : xs) =
+  renderList (CarriageReturn : xs)
 
 renderList (CarriageReturn : xs) = do
   st <- get
@@ -292,20 +290,22 @@ renderList (NewLine : xs) = do
   outp (-1) "\n"
   renderList xs
 
-renderList (BreakingSpace : CarriageReturn : xs) = renderList (CarriageReturn:xs)
+renderList (BreakingSpace : CarriageReturn : xs) =
+  renderList (CarriageReturn:xs)
 renderList (BreakingSpace : NewLine : xs) = renderList (NewLine:xs)
-renderList (BreakingSpace : BlankLine : xs) = renderList (BlankLine:xs)
+renderList (BreakingSpace : BlankLines n : xs) = renderList (BlankLines n:xs)
 renderList (BreakingSpace : BreakingSpace : xs) = renderList (BreakingSpace:xs)
 renderList (BreakingSpace : xs) = do
-  let isText (Text _ _)       = True
-      isText (Block _ _)      = True
-      isText _                = False
+  let isText (Text _ _)     = True
+      isText (Block _ _)    = True
+      isText (AfterBreak _) = True
+      isText _              = False
   let isBreakingSpace BreakingSpace = True
       isBreakingSpace _             = False
   let xs' = dropWhile isBreakingSpace xs
   let next = takeWhile isText xs'
   st <- get
-  let off = sum $ map offsetOf next
+  let off = foldl' (+) 0 $ map offsetOf next
   case lineLength st of
         Just l | column st + 1 + off > l -> do
           outp (-1) "\n"
@@ -314,40 +314,46 @@ renderList (BreakingSpace : xs) = do
           outp 1 " "
           renderList xs'
 
-renderList (b1@Block{} : b2@Block{} : xs) =
-  renderList (mergeBlocks False b1 b2 : xs)
+renderList (AfterBreak s : xs) = do
+  st <- get
+  when (newlines st > 0) $ outp (realLength s) s
+  renderList xs
 
-renderList (b1@Block{} : BreakingSpace : b2@Block{} : xs) =
-  renderList (mergeBlocks True b1 b2 : xs)
+renderList (Block i1 s1 : Block i2 s2  : xs) =
+  renderList (mergeBlocks False (IsBlock i1 s1) (IsBlock i2 s2) : xs)
 
-renderList (Block width lns : xs) = do
+renderList (Block i1 s1 : BreakingSpace : Block i2 s2 : xs) =
+  renderList (mergeBlocks True (IsBlock i1 s1) (IsBlock i2 s2) : xs)
+
+renderList (Block _width lns : xs) = do
   st <- get
   let oldPref = prefix st
   case column st - realLength oldPref of
         n | n > 0 -> modify $ \s -> s{ prefix = oldPref ++ replicate n ' ' }
-        _         -> return ()
-  renderDoc $ blockToDoc width lns
+        _ -> return ()
+  renderList $ intersperse CarriageReturn (map (Text 0) lns)
   modify $ \s -> s{ prefix = oldPref }
   renderList xs
 
-mergeBlocks :: Bool -> D -> D -> D
-mergeBlocks addSpace (Block w1 lns1) (Block w2 lns2) =
+mergeBlocks :: Bool -> IsBlock -> IsBlock -> D
+mergeBlocks addSpace (IsBlock w1 lns1) (IsBlock w2 lns2) =
   Block (w1 + w2 + if addSpace then 1 else 0) $
-     zipWith (\l1 l2 -> pad w1 l1 ++ l2) (lns1 ++ empties) (map sp lns2 ++ empties)
-    where empties = replicate (abs $ length lns1 - length lns2) ""
+     zipWith (\l1 l2 -> pad w1 l1 ++ l2) lns1' (map sp lns2')
+    where (lns1', lns2') = case (length lns1, length lns2) of
+                                (x, y) | x > y -> (lns1,
+                                                   lns2 ++ replicate (x - y) "")
+                                       | x < y -> (lns1 ++ replicate (y - x) "",
+                                                   lns2)
+                                       | otherwise -> (lns1, lns2)
           pad n s = s ++ replicate (n - realLength s) ' '
           sp "" = ""
-          sp xs = if addSpace then (' ' : xs) else xs
-mergeBlocks _ _ _ = error "mergeBlocks tried on non-Block!"
-
-blockToDoc :: Int -> [String] -> Doc
-blockToDoc _ lns = text $ intercalate "\n" lns
+          sp xs = if addSpace then ' ' : xs else xs
 
 offsetOf :: D -> Int
-offsetOf (Text o _)       = o
-offsetOf (Block w _)      = w
-offsetOf BreakingSpace    = 1
-offsetOf _                = 0
+offsetOf (Text o _)    = o
+offsetOf (Block w _)   = w
+offsetOf BreakingSpace = 1
+offsetOf _             = 0
 
 -- | A literal string.
 text :: String -> Doc
@@ -375,9 +381,13 @@ cr = Doc $ singleton CarriageReturn
 
 -- | Inserts a blank line unless one exists already.
 -- (@blankline <> blankline@ has the same effect as @blankline@.
--- If you want multiple blank lines, use @text "\\n\\n"@.
 blankline :: Doc
-blankline = Doc $ singleton BlankLine
+blankline = Doc $ singleton (BlankLines 1)
+
+-- | Inserts blank lines unless they exist already.
+-- (@blanklines m <> blanklines n@ has the same effect as @blanklines (max m n)@.
+blanklines :: Int -> Doc
+blanklines n = Doc $ singleton (BlankLines n)
 
 -- | Uses the specified string as a prefix for every line of
 -- the inside document (except the first, if not at the beginning
@@ -408,17 +418,20 @@ beforeNonBlank d = Doc $ singleton (BeforeNonBlank d)
 nowrap :: Doc -> Doc
 nowrap doc = Doc $ mapWithIndex replaceSpace $ unDoc doc
   where replaceSpace _ BreakingSpace = Text 1 " "
-        replaceSpace _ x = x
+        replaceSpace _ x             = x
+
+-- | Content to print only if it comes at the beginning of a line,
+-- to be used e.g. for escaping line-initial `.` in roff man.
+afterBreak :: String -> Doc
+afterBreak s = Doc $ singleton (AfterBreak s)
 
 -- | Returns the width of a 'Doc'.
 offset :: Doc -> Int
-offset d = case map realLength . lines . render Nothing $ d of
-                []    -> 0
-                os    -> maximum os
+offset d = maximum (0: map realLength (lines $ render Nothing d))
 
-block :: (String -> String) -> Int -> Doc -> Doc
-block filler width = Doc . singleton . Block width .
-                      map filler . chop width . render (Just width)
+-- | Returns the minimal width of a 'Doc' when reflowed at breakable spaces.
+minOffset :: Doc -> Int
+minOffset d = maximum (0: map realLength (lines $ render (Just 0) d))
 
 -- | @lblock n d@ is a block of width @n@ characters, with
 -- text derived from @d@ and aligned to the left.
@@ -437,13 +450,19 @@ cblock w = block (\s -> replicate ((w - realLength s) `div` 2) ' ' ++ s) w
 height :: Doc -> Int
 height = length . lines . render Nothing
 
+block :: (String -> String) -> Int -> Doc -> Doc
+block filler width d
+  | width < 1 && not (isEmpty d) = block filler 1 d
+  | otherwise                    = Doc $ singleton $ Block width $ map filler
+                                 $ chop width $ render (Just width) d
+
 chop :: Int -> String -> [String]
 chop _ [] = []
 chop n cs = case break (=='\n') cs of
                   (xs, ys)     -> if len <= n
                                      then case ys of
                                              []     -> [xs]
-                                             (_:[]) -> [xs, ""]
+                                             ['\n'] -> [xs]
                                              (_:zs) -> xs : chop n zs
                                      else take n xs : chop n (drop n xs ++ ys)
                                    where len = realLength xs
@@ -521,4 +540,4 @@ charWidth c =
 -- | Get real length of string, taking into account combining and double-wide
 -- characters.
 realLength :: String -> Int
-realLength = sum . map charWidth
+realLength = foldl' (+) 0 . map charWidth

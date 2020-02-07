@@ -1,25 +1,8 @@
+{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-
-Copyright (C) 2006-2010 John MacFarlane <jgm@berkeley.edu>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
--}
-
 {- |
    Module      : Text.Pandoc.Writers.AsciiDoc
-   Copyright   : Copyright (C) 2006-2010 John MacFarlane
+   Copyright   : Copyright (C) 2006-2019 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
@@ -36,56 +19,92 @@ that it has omitted the construct.
 
 AsciiDoc:  <http://www.methods.co.nz/asciidoc/>
 -}
-module Text.Pandoc.Writers.AsciiDoc (writeAsciiDoc) where
+module Text.Pandoc.Writers.AsciiDoc (writeAsciiDoc, writeAsciiDoctor) where
+import Prelude
+import Control.Monad.State.Strict
+import Data.Char (isPunctuation, isSpace, toLower)
+import Data.List (intercalate, intersperse, stripPrefix)
+import Data.Maybe (fromMaybe, isJust, listToMaybe)
+import qualified Data.Set as Set
+import Data.Text (Text)
+import Text.Pandoc.Class (PandocMonad, report)
 import Text.Pandoc.Definition
-import Text.Pandoc.Templates (renderTemplate)
-import Text.Pandoc.Shared
+import Text.Pandoc.ImageSize
+import Text.Pandoc.Logging
 import Text.Pandoc.Options
 import Text.Pandoc.Parsing hiding (blankline, space)
-import Data.List ( isPrefixOf, intersperse, intercalate )
 import Text.Pandoc.Pretty
-import Control.Monad.State
+import Text.Pandoc.Shared
+import Text.Pandoc.Templates (renderTemplate')
+import Text.Pandoc.Writers.Shared
 
-data WriterState = WriterState { defListMarker :: String
-                               , orderedListLevel :: Int
-                               , bulletListLevel  :: Int
+data WriterState = WriterState { defListMarker       :: String
+                               , orderedListLevel    :: Int
+                               , bulletListLevel     :: Int
+                               , intraword           :: Bool
+                               , autoIds             :: Set.Set String
+                               , asciidoctorVariant  :: Bool
+                               , inList              :: Bool
+                               , hasMath             :: Bool
                                }
 
+defaultWriterState :: WriterState
+defaultWriterState = WriterState { defListMarker      = "::"
+                                 , orderedListLevel   = 0
+                                 , bulletListLevel    = 0
+                                 , intraword          = False
+                                 , autoIds            = Set.empty
+                                 , asciidoctorVariant = False
+                                 , inList             = False
+                                 , hasMath            = False
+                                 }
+
 -- | Convert Pandoc to AsciiDoc.
-writeAsciiDoc :: WriterOptions -> Pandoc -> String
+writeAsciiDoc :: PandocMonad m => WriterOptions -> Pandoc -> m Text
 writeAsciiDoc opts document =
-  evalState (pandocToAsciiDoc opts document) WriterState{
-      defListMarker = "::"
-    , orderedListLevel = 1
-    , bulletListLevel = 1
-    }
+  evalStateT (pandocToAsciiDoc opts document) defaultWriterState
+
+-- | Convert Pandoc to AsciiDoctor compatible AsciiDoc.
+writeAsciiDoctor :: PandocMonad m => WriterOptions -> Pandoc -> m Text
+writeAsciiDoctor opts document =
+  evalStateT (pandocToAsciiDoc opts document) defaultWriterState{ asciidoctorVariant = True }
+
+type ADW = StateT WriterState
 
 -- | Return asciidoc representation of document.
-pandocToAsciiDoc :: WriterOptions -> Pandoc -> State WriterState String
-pandocToAsciiDoc opts (Pandoc (Meta title authors date) blocks) = do
-  title' <- inlineListToAsciiDoc opts title
-  let title'' = title' $$ text (replicate (offset title') '=')
-  authors' <- mapM (inlineListToAsciiDoc opts) authors
-  -- asciidoc only allows a singel author
-  date' <- inlineListToAsciiDoc opts date
-  let titleblock = not $ null title && null authors && null date
-  body <- blockListToAsciiDoc opts blocks
-  let colwidth = if writerWrapText opts
+pandocToAsciiDoc :: PandocMonad m => WriterOptions -> Pandoc -> ADW m Text
+pandocToAsciiDoc opts (Pandoc meta blocks) = do
+  let titleblock = not $ null (docTitle meta) && null (docAuthors meta) &&
+                         null (docDate meta)
+  let colwidth = if writerWrapText opts == WrapAuto
                     then Just $ writerColumns opts
                     else Nothing
+  let render' :: Doc -> Text
+      render' = render colwidth
+  metadata <- metaToJSON opts
+              (fmap render' . blockListToAsciiDoc opts)
+              (fmap render' . inlineListToAsciiDoc opts)
+              meta
+  body <- vcat <$> mapM (elementToAsciiDoc 1 opts) (hierarchicalize blocks)
   let main = render colwidth body
-  let context  = writerVariables opts ++
-                 [ ("body", main)
-                 , ("title", render colwidth title'')
-                 , ("date", render colwidth date')
-                 ] ++
-                 [ ("toc", "yes") | writerTableOfContents opts &&
-                                    writerStandalone opts ] ++
-                 [ ("titleblock", "yes") | titleblock ] ++
-                 [ ("author", render colwidth a) | a <- authors' ]
-  if writerStandalone opts
-     then return $ renderTemplate context $ writerTemplate opts
-     else return main
+  st <- get
+  let context  = defField "body" main
+               $ defField "toc"
+                  (writerTableOfContents opts &&
+                   isJust (writerTemplate opts))
+               $ defField "math" (hasMath st)
+               $ defField "titleblock" titleblock metadata
+  case writerTemplate opts of
+       Nothing  -> return main
+       Just tpl -> renderTemplate' tpl context
+
+elementToAsciiDoc :: PandocMonad m
+                  => Int -> WriterOptions -> Element -> ADW m Doc
+elementToAsciiDoc _ opts (Blk b) = blockToAsciiDoc opts b
+elementToAsciiDoc nestlevel opts (Sec _lvl _num attr label children) = do
+  hdr <- blockToAsciiDoc opts (Header nestlevel attr label)
+  rest <- vcat <$> mapM (elementToAsciiDoc (nestlevel + 1) opts) children
+  return $ hdr $$ rest
 
 -- | Escape special characters for AsciiDoc.
 escapeString :: String -> String
@@ -102,49 +121,68 @@ olMarker = do (start, style', delim) <- anyOrderedListMarker
                           else spaceChar
 
 -- | True if string begins with an ordered list marker
-beginsWithOrderedListMarker :: String -> Bool
-beginsWithOrderedListMarker str =
-  case runParser olMarker defaultParserState "para start" (take 10 str) of
-         Left  _  -> False
-         Right _  -> True
+-- or would be interpreted as an AsciiDoc option command
+needsEscaping :: String -> Bool
+needsEscaping s = beginsWithOrderedListMarker s || isBracketed s
+  where
+    beginsWithOrderedListMarker str =
+      case runParser olMarker defaultParserState "para start" (take 10 str) of
+             Left  _ -> False
+             Right _ -> True
+    isBracketed ('[':cs) = listToMaybe (reverse cs) == Just ']'
+    isBracketed _ = False
 
 -- | Convert Pandoc block element to asciidoc.
-blockToAsciiDoc :: WriterOptions -- ^ Options
+blockToAsciiDoc :: PandocMonad m
+                => WriterOptions -- ^ Options
                 -> Block         -- ^ Block element
-                -> State WriterState Doc
+                -> ADW m Doc
 blockToAsciiDoc _ Null = return empty
 blockToAsciiDoc opts (Plain inlines) = do
   contents <- inlineListToAsciiDoc opts inlines
-  return $ contents <> cr
-blockToAsciiDoc opts (Para [Image alt (src,'f':'i':'g':':':tit)]) =
-  blockToAsciiDoc opts (Para [Image alt (src,tit)])
+  return $ contents <> blankline
+blockToAsciiDoc opts (Para [Image attr alt (src,'f':'i':'g':':':tit)]) =
+  blockToAsciiDoc opts (Para [Image attr alt (src,tit)])
 blockToAsciiDoc opts (Para inlines) = do
   contents <- inlineListToAsciiDoc opts inlines
   -- escape if para starts with ordered list marker
-  let esc = if beginsWithOrderedListMarker (render Nothing contents)
-               then text "\\"
+  let esc = if needsEscaping (render Nothing contents)
+               then text "{empty}"
                else empty
   return $ esc <> contents <> blankline
-blockToAsciiDoc _ (RawBlock _ _) = return empty
+blockToAsciiDoc opts (LineBlock lns) = do
+  let docify line = if null line
+                    then return blankline
+                    else inlineListToAsciiDoc opts line
+  let joinWithLinefeeds = nowrap . mconcat . intersperse cr
+  contents <- joinWithLinefeeds <$> mapM docify lns
+  return $ "[verse]" $$ text "--" $$ contents $$ text "--" $$ blankline
+blockToAsciiDoc _ b@(RawBlock f s)
+  | f == "asciidoc" = return $ text s
+  | otherwise         = do
+      report $ BlockNotRendered b
+      return empty
 blockToAsciiDoc _ HorizontalRule =
   return $ blankline <> text "'''''" <> blankline
 blockToAsciiDoc opts (Header level (ident,_,_) inlines) = do
   contents <- inlineListToAsciiDoc opts inlines
-  let len = offset contents
-  return $ ("[[" <> text ident <> "]]") $$ contents $$
-         (case level of
-               1  -> text $ replicate len '-'
-               2  -> text $ replicate len '~'
-               3  -> text $ replicate len '^'
-               4  -> text $ replicate len '+'
-               _  -> empty) <> blankline
-blockToAsciiDoc _ (CodeBlock (_,classes,_) str) = return $
-  flush (attrs <> dashes <> space <> attrs <> cr <> text str <>
-           cr <> dashes) <> blankline
-     where dashes  = text $ replicate (maximum $ map length $ lines str) '-'
-           attrs = if null classes
+  ids <- gets autoIds
+  let autoId = uniqueIdent (writerExtensions opts) inlines ids
+  modify $ \st -> st{ autoIds = Set.insert autoId ids }
+  let identifier = if null ident ||
+                      (isEnabled Ext_auto_identifiers opts && ident == autoId)
                       then empty
-                      else text $ intercalate "," $ "code" : classes
+                      else "[[" <> text ident <> "]]"
+  return $ identifier $$
+           nowrap (text (replicate (level + 1) '=') <> space <> contents) <>
+           blankline
+
+blockToAsciiDoc _ (CodeBlock (_,classes,_) str) = return $ flush (
+  if null classes
+     then "...." $$ text str $$ "...."
+     else attrs $$ "----" $$ text str $$ "----")
+  <> blankline
+    where attrs = "[" <> text (intercalate "," ("source" : classes)) <> "]"
 blockToAsciiDoc opts (BlockQuote blocks) = do
   contents <- blockListToAsciiDoc opts blocks
   let isBlock (BlockQuote _) = True
@@ -153,8 +191,7 @@ blockToAsciiDoc opts (BlockQuote blocks) = do
   let contents' = if any isBlock blocks
                      then "--" $$ contents $$ "--"
                      else contents
-  let cols = offset contents'
-  let bar = text $ replicate cols '_'
+  let bar = text "____"
   return $ bar $$ chomp contents' $$ bar <> blankline
 blockToAsciiDoc opts (Table caption aligns widths headers rows) =  do
   caption' <- inlineListToAsciiDoc opts caption
@@ -164,7 +201,7 @@ blockToAsciiDoc opts (Table caption aligns widths headers rows) =  do
   let isSimple = all (== 0) widths
   let relativePercentWidths = if isSimple
                                  then widths
-                                 else map (/ (sum widths)) widths
+                                 else map (/ sum widths) widths
   let widths'' :: [Integer]
       widths'' = map (floor . (* 100)) relativePercentWidths
   -- ensure that the widths sum to 100
@@ -180,7 +217,7 @@ blockToAsciiDoc opts (Table caption aligns widths headers rows) =  do
                          AlignCenter  -> "^"
                          AlignRight   -> ">"
                          AlignDefault -> "") ++
-                      if wi == 0 then "" else (show wi ++ "%")
+                      if wi == 0 then "" else show wi ++ "%"
   let headerspec = if all null headers
                       then empty
                       else text "options=\"header\","
@@ -199,88 +236,114 @@ blockToAsciiDoc opts (Table caption aligns widths headers rows) =  do
   let makeCell [Plain x] = do d <- blockListToAsciiDoc opts [Plain x]
                               return $ text "|" <> chomp d
       makeCell [Para x]  = makeCell [Plain x]
-      makeCell _         = return $ text "|" <> "[multiblock cell omitted]"
+      makeCell []        = return $ text "|"
+      makeCell bs        = do d <- blockListToAsciiDoc opts bs
+                              return $ text "a|" $$ d
   let makeRow cells = hsep `fmap` mapM makeCell cells
   rows' <- mapM makeRow rows
   head' <- makeRow headers
   let head'' = if all null headers then empty else head'
-  let colwidth = if writerWrapText opts
+  let colwidth = if writerWrapText opts == WrapAuto
                     then writerColumns opts
                     else 100000
   let maxwidth = maximum $ map offset (head':rows')
   let body = if maxwidth > colwidth then vsep rows' else vcat rows'
-  let border = text $ "|" ++ replicate ((min maxwidth colwidth) - 1) '='
+  let border = text "|==="
   return $
     caption'' $$ tablespec $$ border $$ head'' $$ body $$ border $$ blankline
 blockToAsciiDoc opts (BulletList items) = do
+  inlist <- gets inList
+  modify $ \st -> st{ inList = True }
   contents <- mapM (bulletListItemToAsciiDoc opts) items
+  modify $ \st -> st{ inList = inlist }
   return $ cat contents <> blankline
-blockToAsciiDoc opts (OrderedList (_start, sty, _delim) items) = do
-  let sty' = case sty of
-                  UpperRoman -> UpperAlpha
-                  LowerRoman -> LowerAlpha
-                  x          -> x
-  let markers  = orderedListMarkers (1, sty', Period)  -- start num not used
-  let markers' = map (\m -> if length m < 3
-                               then m ++ replicate (3 - length m) ' '
-                               else m) markers
-  contents <- mapM (\(item, num) -> orderedListItemToAsciiDoc opts item num) $
-              zip markers' items
-  return $ cat contents <> blankline
+blockToAsciiDoc opts (OrderedList (start, sty, _delim) items) = do
+  let listStyle = case sty of
+                       DefaultStyle -> []
+                       Decimal      -> ["arabic"]
+                       Example      -> []
+                       _            -> [map toLower (show sty)]
+  let listStart = if start == 1 then [] else ["start=" ++ show start]
+  let listoptions = case intercalate ", " (listStyle ++ listStart) of
+                          [] -> empty
+                          x  -> brackets (text x)
+  inlist <- gets inList
+  modify $ \st -> st{ inList = True }
+  contents <- mapM (orderedListItemToAsciiDoc opts) items
+  modify $ \st -> st{ inList = inlist }
+  return $ listoptions $$ cat contents <> blankline
 blockToAsciiDoc opts (DefinitionList items) = do
+  inlist <- gets inList
+  modify $ \st -> st{ inList = True }
   contents <- mapM (definitionListItemToAsciiDoc opts) items
+  modify $ \st -> st{ inList = inlist }
   return $ cat contents <> blankline
+blockToAsciiDoc opts (Div (ident,_,_) bs) = do
+  let identifier = if null ident then empty else "[[" <> text ident <> "]]"
+  contents <- blockListToAsciiDoc opts bs
+  return $ identifier $$ contents
 
 -- | Convert bullet list item (list of blocks) to asciidoc.
-bulletListItemToAsciiDoc :: WriterOptions -> [Block] -> State WriterState Doc
+bulletListItemToAsciiDoc :: PandocMonad m
+                         => WriterOptions -> [Block] -> ADW m Doc
 bulletListItemToAsciiDoc opts blocks = do
-  let addBlock :: Doc -> Block -> State WriterState Doc
-      addBlock d b | isEmpty d    = chomp `fmap` blockToAsciiDoc opts b
-      addBlock d b@(BulletList _) = do x <- blockToAsciiDoc opts b
-                                       return $ d <> cr <> chomp x
-      addBlock d b@(OrderedList _ _) = do x <- blockToAsciiDoc opts b
-                                          return $ d <> cr <> chomp x
-      addBlock d b = do x <- blockToAsciiDoc opts b
-                        return $ d <> cr <> text "+" <> cr <> chomp x
-  lev <- bulletListLevel `fmap` get
+  lev <- gets bulletListLevel
   modify $ \s -> s{ bulletListLevel = lev + 1 }
-  contents <- foldM addBlock empty blocks
+  contents <- foldM (addBlock opts) empty blocks
   modify $ \s -> s{ bulletListLevel = lev }
-  let marker = text (replicate lev '*')
-  return $ marker <> space <> contents <> cr
+  let marker = text (replicate (lev + 1) '*')
+  return $ marker <> text " " <> listBegin blocks <>
+    contents <> cr
+
+addBlock :: PandocMonad m => WriterOptions -> Doc -> Block -> ADW m Doc
+addBlock opts d b = do
+  x <- chomp <$> blockToAsciiDoc opts b
+  return $
+    case b of
+        BulletList{} -> d <> cr <> x
+        OrderedList{} -> d <> cr <> x
+        Para (Math DisplayMath _:_) -> d <> cr <> x
+        Plain (Math DisplayMath _:_) -> d <> cr <> x
+        Para{} | isEmpty d -> x
+        Plain{} | isEmpty d -> x
+        _ -> d <> cr <> text "+" <> cr <> x
+
+listBegin :: [Block] -> Doc
+listBegin blocks =
+        case blocks of
+          Para (Math DisplayMath _:_) : _  -> "{blank}"
+          Plain (Math DisplayMath _:_) : _ -> "{blank}"
+          Para _ : _                       -> empty
+          Plain _ : _                      -> empty
+          _ : _                            -> "{blank}"
+          []                               -> "{blank}"
 
 -- | Convert ordered list item (a list of blocks) to asciidoc.
-orderedListItemToAsciiDoc :: WriterOptions -- ^ options
-                          -> String        -- ^ list item marker
+orderedListItemToAsciiDoc :: PandocMonad m
+                          => WriterOptions -- ^ options
                           -> [Block]       -- ^ list item (list of blocks)
-                          -> State WriterState Doc
-orderedListItemToAsciiDoc opts marker blocks = do
-  let addBlock :: Doc -> Block -> State WriterState Doc
-      addBlock d b | isEmpty d    = chomp `fmap` blockToAsciiDoc opts b
-      addBlock d b@(BulletList _) = do x <- blockToAsciiDoc opts b
-                                       return $ d <> cr <> chomp x
-      addBlock d b@(OrderedList _ _) = do x <- blockToAsciiDoc opts b
-                                          return $ d <> cr <> chomp x
-      addBlock d b = do x <- blockToAsciiDoc opts b
-                        return $ d <> cr <> text "+" <> cr <> chomp x
-  lev <- orderedListLevel `fmap` get
+                          -> ADW m Doc
+orderedListItemToAsciiDoc opts blocks = do
+  lev <- gets orderedListLevel
   modify $ \s -> s{ orderedListLevel = lev + 1 }
-  contents <- foldM addBlock empty blocks
+  contents <- foldM (addBlock opts) empty blocks
   modify $ \s -> s{ orderedListLevel = lev }
-  return $ text marker <> space <> contents <> cr
+  let marker = text (replicate (lev + 1) '.')
+  return $ marker <> text " " <> listBegin blocks <> contents <> cr
 
 -- | Convert definition list item (label, list of blocks) to asciidoc.
-definitionListItemToAsciiDoc :: WriterOptions
+definitionListItemToAsciiDoc :: PandocMonad m
+                             => WriterOptions
                              -> ([Inline],[[Block]])
-                             -> State WriterState Doc
+                             -> ADW m Doc
 definitionListItemToAsciiDoc opts (label, defs) = do
   labelText <- inlineListToAsciiDoc opts label
-  marker <- defListMarker `fmap` get
+  marker <- gets defListMarker
   if marker == "::"
      then modify (\st -> st{ defListMarker = ";;"})
      else modify (\st -> st{ defListMarker = "::"})
   let divider = cr <> text "+" <> cr
-  let defsToAsciiDoc :: [Block] -> State WriterState Doc
+  let defsToAsciiDoc :: PandocMonad m => [Block] -> ADW m Doc
       defsToAsciiDoc ds = (vcat . intersperse divider . map chomp)
            `fmap` mapM (blockToAsciiDoc opts) ds
   defs' <- mapM defsToAsciiDoc defs
@@ -289,24 +352,71 @@ definitionListItemToAsciiDoc opts (label, defs) = do
   return $ labelText <> text marker <> cr <> contents <> cr
 
 -- | Convert list of Pandoc block elements to asciidoc.
-blockListToAsciiDoc :: WriterOptions -- ^ Options
+blockListToAsciiDoc :: PandocMonad m
+                    => WriterOptions -- ^ Options
                     -> [Block]       -- ^ List of block elements
-                    -> State WriterState Doc
+                    -> ADW m Doc
 blockListToAsciiDoc opts blocks = cat `fmap` mapM (blockToAsciiDoc opts) blocks
 
+data SpacyLocation = End | Start
+
 -- | Convert list of Pandoc inline elements to asciidoc.
-inlineListToAsciiDoc :: WriterOptions -> [Inline] -> State WriterState Doc
-inlineListToAsciiDoc opts lst =
-  mapM (inlineToAsciiDoc opts) lst >>= return . cat
+inlineListToAsciiDoc :: PandocMonad m => WriterOptions -> [Inline] -> ADW m Doc
+inlineListToAsciiDoc opts lst = do
+  oldIntraword <- gets intraword
+  setIntraword False
+  result <- go lst
+  setIntraword oldIntraword
+  return result
+ where go [] = return empty
+       go (y:x:xs)
+         | not (isSpacy End y) = do
+           y' <- if isSpacy Start x
+                    then inlineToAsciiDoc opts y
+                    else withIntraword $ inlineToAsciiDoc opts y
+           x' <- withIntraword $ inlineToAsciiDoc opts x
+           xs' <- go xs
+           return (y' <> x' <> xs')
+         | not (isSpacy Start x) = do
+           y' <- withIntraword $ inlineToAsciiDoc opts y
+           xs' <- go (x:xs)
+           return (y' <> xs')
+       go (x:xs) = do
+           x' <- inlineToAsciiDoc opts x
+           xs' <- go xs
+           return (x' <> xs')
+       isSpacy :: SpacyLocation -> Inline -> Bool
+       isSpacy _ Space = True
+       isSpacy _ LineBreak = True
+       isSpacy _ SoftBreak = True
+       -- Note that \W characters count as spacy in AsciiDoc
+       -- for purposes of determining interword:
+       isSpacy End (Str xs) = case reverse xs of
+                                   c:_ -> isPunctuation c || isSpace c
+                                   _   -> False
+       isSpacy Start (Str (c:_)) = isPunctuation c || isSpace c
+       isSpacy _ _ = False
+
+setIntraword :: PandocMonad m => Bool -> ADW m ()
+setIntraword b = modify $ \st -> st{ intraword = b }
+
+withIntraword :: PandocMonad m => ADW m a -> ADW m a
+withIntraword p = setIntraword True *> p <* setIntraword False
 
 -- | Convert Pandoc inline element to asciidoc.
-inlineToAsciiDoc :: WriterOptions -> Inline -> State WriterState Doc
+inlineToAsciiDoc :: PandocMonad m => WriterOptions -> Inline -> ADW m Doc
+inlineToAsciiDoc opts (Emph [Strong xs]) =
+  inlineToAsciiDoc opts (Strong [Emph xs])  -- see #5565
 inlineToAsciiDoc opts (Emph lst) = do
   contents <- inlineListToAsciiDoc opts lst
-  return $ "_" <> contents <> "_"
+  isIntraword <- gets intraword
+  let marker = if isIntraword then "__" else "_"
+  return $ marker <> contents <> marker
 inlineToAsciiDoc opts (Strong lst) = do
   contents <- inlineListToAsciiDoc opts lst
-  return $ "*" <> contents <> "*"
+  isIntraword <- gets intraword
+  let marker = if isIntraword then "**" else "*"
+  return $ marker <> contents <> marker
 inlineToAsciiDoc opts (Strikeout lst) = do
   contents <- inlineListToAsciiDoc opts lst
   return $ "[line-through]*" <> contents <> "*"
@@ -317,24 +427,54 @@ inlineToAsciiDoc opts (Subscript lst) = do
   contents <- inlineListToAsciiDoc opts lst
   return $ "~" <> contents <> "~"
 inlineToAsciiDoc opts (SmallCaps lst) = inlineListToAsciiDoc opts lst
-inlineToAsciiDoc opts (Quoted SingleQuote lst) = do
-  contents <- inlineListToAsciiDoc opts lst
-  return $ "`" <> contents <> "'"
-inlineToAsciiDoc opts (Quoted DoubleQuote lst) = do
-  contents <- inlineListToAsciiDoc opts lst
-  return $ "``" <> contents <> "''"
+inlineToAsciiDoc opts (Quoted qt lst) = do
+  isAsciidoctor <- gets asciidoctorVariant
+  inlineListToAsciiDoc opts $
+    case qt of
+      SingleQuote
+        | isAsciidoctor -> [Str "'`"] ++ lst ++ [Str "`'"]
+        | otherwise     -> [Str "`"] ++ lst ++ [Str "'"]
+      DoubleQuote
+        | isAsciidoctor -> [Str "\"`"] ++ lst ++ [Str "`\""]
+        | otherwise     -> [Str "``"] ++ lst ++ [Str "''"]
 inlineToAsciiDoc _ (Code _ str) = return $
-  text "`" <> text (escapeStringUsing (backslashEscapes "`") str) <> "`"
+  text "`+" <> text (escapeStringUsing (backslashEscapes "`") str) <> "+`"
 inlineToAsciiDoc _ (Str str) = return $ text $ escapeString str
-inlineToAsciiDoc _ (Math InlineMath str) =
-  return $ "latexmath:[$" <> text str <> "$]"
-inlineToAsciiDoc _ (Math DisplayMath str) =
-  return $ "latexmath:[\\[" <> text str <> "\\]]"
-inlineToAsciiDoc _ (RawInline _ _) = return empty
-inlineToAsciiDoc _ (LineBreak) = return $ " +" <> cr
+inlineToAsciiDoc _ (Math InlineMath str) = do
+  isAsciidoctor <- gets asciidoctorVariant
+  modify $ \st -> st{ hasMath = True }
+  let content = if isAsciidoctor
+                then text str
+                else "$" <> text str <> "$"
+  return $ "latexmath:[" <> content <> "]"
+inlineToAsciiDoc _ (Math DisplayMath str) = do
+  isAsciidoctor <- gets asciidoctorVariant
+  modify $ \st -> st{ hasMath = True }
+  let content = if isAsciidoctor
+                then text str
+                else "\\[" <> text str <> "\\]"
+  inlist <- gets inList
+  let sepline = if inlist
+                   then text "+"
+                   else blankline
+  return $
+      (cr <> sepline) $$ "[latexmath]" $$ "++++" $$
+      content $$ "++++" <> cr
+inlineToAsciiDoc _ il@(RawInline f s)
+  | f == "asciidoc" = return $ text s
+  | otherwise         = do
+      report $ InlineNotRendered il
+      return empty
+  | otherwise       = return empty
+inlineToAsciiDoc _ LineBreak = return $ " +" <> cr
 inlineToAsciiDoc _ Space = return space
+inlineToAsciiDoc opts SoftBreak =
+  case writerWrapText opts of
+       WrapAuto     -> return space
+       WrapPreserve -> return cr
+       WrapNone     -> return space
 inlineToAsciiDoc opts (Cite _ lst) = inlineListToAsciiDoc opts lst
-inlineToAsciiDoc opts (Link txt (src, _tit)) = do
+inlineToAsciiDoc opts (Link _ txt (src, _tit)) = do
 -- relative:  link:downloads/foo.zip[download foo.zip]
 -- abs:  http://google.cod[Google]
 -- or my@email.com[email john]
@@ -343,23 +483,34 @@ inlineToAsciiDoc opts (Link txt (src, _tit)) = do
   let prefix = if isRelative
                   then text "link:"
                   else empty
-  let srcSuffix = if isPrefixOf "mailto:" src then drop 7 src else src
+  let srcSuffix = fromMaybe src (stripPrefix "mailto:" src)
   let useAuto = case txt of
                       [Str s] | escapeURI s == srcSuffix -> True
-                      _                                  -> False
+                      _       -> False
   return $ if useAuto
               then text srcSuffix
               else prefix <> text src <> "[" <> linktext <> "]"
-inlineToAsciiDoc opts (Image alternate (src, tit)) = do
+inlineToAsciiDoc opts (Image attr alternate (src, tit)) = do
 -- image:images/logo.png[Company logo, title="blah"]
-  let txt = if (null alternate) || (alternate == [Str ""])
+  let txt = if null alternate || (alternate == [Str ""])
                then [Str "image"]
                else alternate
   linktext <- inlineListToAsciiDoc opts txt
   let linktitle = if null tit
                      then empty
-                     else text $ ",title=\"" ++ tit ++ "\""
-  return $ "image:" <> text src <> "[" <> linktext <> linktitle <> "]"
+                     else ",title=\"" <> text tit <> "\""
+      showDim dir = case dimension dir attr of
+                      Just (Percent a) ->
+                        ["scaledwidth=" <> text (show (Percent a))]
+                      Just dim         ->
+                        [text (show dir) <> "=" <> text (showInPixel opts dim)]
+                      Nothing          ->
+                        []
+      dimList = showDim Width ++ showDim Height
+      dims = if null dimList
+                then empty
+                else "," <> cat (intersperse "," dimList)
+  return $ "image:" <> text src <> "[" <> linktext <> linktitle <> dims <> "]"
 inlineToAsciiDoc opts (Note [Para inlines]) =
   inlineToAsciiDoc opts (Note [Plain inlines])
 inlineToAsciiDoc opts (Note [Plain inlines]) = do
@@ -367,3 +518,13 @@ inlineToAsciiDoc opts (Note [Plain inlines]) = do
   return $ text "footnote:[" <> contents <> "]"
 -- asciidoc can't handle blank lines in notes
 inlineToAsciiDoc _ (Note _) = return "[multiblock footnote omitted]"
+inlineToAsciiDoc opts (Span (ident,classes,_) ils) = do
+  contents <- inlineListToAsciiDoc opts ils
+  isIntraword <- gets intraword
+  let marker = if isIntraword then "##" else "#"
+  if null ident && null classes
+     then return contents
+     else do
+       let modifier = brackets $ text $ unwords $
+            [ '#':ident | not (null ident)] ++ map ('.':) classes
+       return $ modifier <> marker <> contents <> marker
